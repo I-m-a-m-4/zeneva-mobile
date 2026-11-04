@@ -1,0 +1,976 @@
+'use client';
+
+import * as React from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { DollarSign, FileText, TrendingUp, TrendingDown, Coins, PieChart, Percent, ArrowUpRight, ArrowDownRight, Layers, Download } from 'lucide-react';
+import type { Receipt, Product, Expense } from '@/types';
+import ProfitLossChart from './profit-loss-chart';
+import TopItemsPanel from './top-items-panel';
+import { Button } from '@/components/ui/button';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { format, subDays } from 'date-fns';
+import { safeToDate } from '@/lib/utils';
+import { Input } from '@/components/ui/input';
+import { Search, Printer } from 'lucide-react';
+import { downloadCsv } from '@/lib/csv';
+import { logExportEvent } from '@/lib/export-telemetry';
+import { usePOS } from '@/context/pos-context';
+import { useToast } from '@/hooks/use-toast';
+import { useI18n } from '@/context/i18n-context';
+
+interface ProfitLossStatementProps {
+    receipts: Receipt[];
+    products: Product[];
+    currencySymbol: string;
+    expenses?: Expense[];
+}
+
+export default function ProfitLossStatement({ receipts, products, currencySymbol, expenses = [] }: ProfitLossStatementProps) {
+    const { t } = useI18n();
+    const financialSummary = React.useMemo(() => {
+        let grossRevenue = 0;
+        let totalCogs = 0;
+        let totalDiscounts = 0;
+        let totalItemsSold = 0;
+
+        const categoryFinancials: Record<string, { revenue: number; cogs: number; qty: number }> = {};
+
+        receipts.forEach(receipt => {
+            let receiptDiscount = Number(receipt.discount) || 0;
+            totalDiscounts += receiptDiscount;
+
+            receipt.items.forEach(item => {
+                const itemRevenue = (Number(item.price) || 0) * (Number(item.quantity) || 0);
+                grossRevenue += itemRevenue;
+                totalItemsSold += Number(item.quantity) || 0;
+
+                // Match cost price from product record
+                const product = products.find(p => p.id === item.productId || p.name === item.name);
+                const itemCost = Number(product?.costPrice) || 0;
+                const itemCogs = itemCost * (Number(item.quantity) || 0);
+                totalCogs += itemCogs;
+
+                // Category tracking
+                const category = product?.category || t('inventory.uncategorized');
+                if (!categoryFinancials[category]) {
+                    categoryFinancials[category] = { revenue: 0, cogs: 0, qty: 0 };
+                }
+                categoryFinancials[category].revenue += itemRevenue;
+                categoryFinancials[category].cogs += itemCogs;
+                categoryFinancials[category].qty += Number(item.quantity) || 0;
+            });
+        });
+
+        const isPurchaseExpense = (e: Expense) => {
+            if (!e) return false;
+            const cat = String(e.category || '').toLowerCase().trim();
+            const type = String((e as any).type || '').toLowerCase().trim();
+            const expType = String((e as any).expenseType || '').toLowerCase().trim();
+            return (
+                cat === 'supplier_payment' ||
+                cat === 'procurement' ||
+                cat === 'inventory_procurement' ||
+                cat === 'purchase' ||
+                cat === 'purchases' ||
+                type === 'purchase' ||
+                expType === 'purchase'
+            );
+        };
+
+        // Separate true operating overheads (rent, salaries, utilities) from inventory purchases,
+        // and distinguish revenue-funded deductions from profit reinvestments.
+        let totalPurchases = 0;
+        let purchasesFromProfit = 0;
+        let totalOperatingExpenses = 0;
+        let expensesFromProfit = 0;
+        const expenseCategoryTotals: Record<string, number> = {};
+
+        expenses.forEach(exp => {
+            if (exp?.status === 'pending') return; // only count realized outflows
+            const amt = Number(exp.amount) || 0;
+            const cat = String(exp.category || 'miscellaneous');
+            const source = (exp as any).deductionSource;
+            // Excluded outflows never deduct from profit or sales revenue
+            if (source === 'excluded') return;
+
+            const isProfitDeduction = source === 'net_profit';
+
+            if (isPurchaseExpense(exp)) {
+                if (isProfitDeduction) {
+                    purchasesFromProfit += amt;
+                } else {
+                    totalPurchases += amt;
+                }
+            } else {
+                if (isProfitDeduction) {
+                    expensesFromProfit += amt;
+                } else {
+                    totalOperatingExpenses += amt;
+                }
+                expenseCategoryTotals[cat] = (expenseCategoryTotals[cat] || 0) + amt;
+            }
+        });
+
+        // Sales Revenue is Gross Revenue minus sales discounts. Expenses/purchases never reduce sales revenue.
+        const netSales = Math.max(0, grossRevenue - totalDiscounts);
+        const effectiveCogs = totalCogs;
+        const grossProfit = Math.max(0, netSales - effectiveCogs);
+        const operatingNetProfit = grossProfit - totalOperatingExpenses;
+        const totalProfitReinvested = purchasesFromProfit + expensesFromProfit;
+        const netProfit = operatingNetProfit - totalProfitReinvested;
+        const grossMarginPct = grossRevenue > 0 ? (grossProfit / grossRevenue) * 100 : 0;
+        const netMarginPct = grossRevenue > 0 ? (netProfit / grossRevenue) * 100 : 0;
+
+        const categoryList = Object.entries(categoryFinancials).map(([category, data]) => {
+            const profit = data.revenue - data.cogs;
+            const margin = data.revenue > 0 ? (profit / data.revenue) * 100 : 0;
+            return {
+                category,
+                revenue: data.revenue,
+                cogs: data.cogs,
+                profit,
+                margin,
+                qty: data.qty
+            };
+        }).sort((a, b) => b.profit - a.profit);
+
+        return {
+            grossRevenue,
+            totalCogs,
+            totalPurchases,
+            purchasesFromProfit,
+            effectiveCogs,
+            netSales,
+            grossProfit,
+            totalDiscounts,
+            totalOperatingExpenses,
+            expensesFromProfit,
+            totalProfitReinvested,
+            operatingNetProfit,
+            expenseCategoryTotals,
+            netProfit,
+            grossMarginPct,
+            netMarginPct,
+            totalItemsSold,
+            categoryList
+        };
+    }, [receipts, products, expenses, t]);
+
+    const { business, currentUserProfile, firestore } = usePOS();
+    const { toast } = useToast();
+
+    const [searchTerm, setSearchTerm] = React.useState('');
+    const [page, setPage] = React.useState(1);
+    const pageSize = 50;
+
+    const profitStatementItems = React.useMemo(() => {
+        if (!receipts || !products) return [];
+
+        const items: any[] = [];
+        receipts.forEach(r => {
+            const dateStr = r.createdAt ? format(safeToDate(r.createdAt), 'dd MMM yyyy, hh:mm a') : 'Unknown';
+            r.items?.forEach(i => {
+                const product = products.find(p => p.id === i.productId);
+                const name = i.name || product?.name || 'Unknown Item';
+                const qty = Number(i.quantity) || 0;
+                const sellingPrice = Number(i.price) || 0;
+                const unitCost = Number(i.costPrice) || Number(product?.costPrice) || 0; 
+                const profit = (sellingPrice - unitCost) * qty;
+
+                items.push({
+                    id: Math.random().toString(), // good enough for key here
+                    receiptRef: r.receiptNumber || r.id,
+                    date: dateStr,
+                    name,
+                    qty,
+                    unitCost,
+                    sellingPrice,
+                    profit,
+                    isOverride: Boolean(i.priceOverridden || (i as any).isPriceOverride),
+                    overrideNote: (i as any).priceOverrideNote,
+                });
+            });
+        });
+        return items;
+    }, [receipts, products]);
+
+    const filteredItems = React.useMemo(() => {
+        if (!searchTerm) return profitStatementItems;
+        const lower = searchTerm.toLowerCase();
+        return profitStatementItems.filter(item => item.name.toLowerCase().includes(lower) || item.receiptRef?.toLowerCase().includes(lower));
+    }, [profitStatementItems, searchTerm]);
+
+    React.useEffect(() => {
+        setPage(1);
+    }, [searchTerm]);
+
+    const totalPages = Math.ceil(filteredItems.length / pageSize);
+    const paginatedItems = filteredItems.slice((page - 1) * pageSize, page * pageSize);
+
+    const totalFilteredQty = filteredItems.reduce((acc, curr) => acc + curr.qty, 0);
+    const totalFilteredCost = filteredItems.reduce((acc, curr) => acc + (curr.unitCost * curr.qty), 0);
+    const totalFilteredRevenue = filteredItems.reduce((acc, curr) => acc + (curr.sellingPrice * curr.qty), 0);
+    const totalFilteredProfit = filteredItems.reduce((acc, curr) => acc + curr.profit, 0);
+
+    const handleExportBreakdownPDF = async () => {
+        toast({
+            title: t('reports.generatingPdf'),
+            description: t('reports.generatingPdfBody'),
+        });
+
+        const doc = new jsPDF();
+        
+        let hasCustomFont = false;
+        try {
+            const fontUrl = 'https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Me5WZLCzYlKw.ttf';
+            const fontResponse = await fetch(fontUrl);
+            if (fontResponse.ok) {
+                const buffer = await fontResponse.arrayBuffer();
+                const bytes = new Uint8Array(buffer);
+                let binary = '';
+                for (let i = 0; i < bytes.byteLength; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                }
+                const base64 = window.btoa(binary);
+                doc.addFileToVFS('Roboto.ttf', base64);
+                doc.addFont('Roboto.ttf', 'Roboto', 'normal');
+                doc.setFont('Roboto');
+                hasCustomFont = true;
+            }
+        } catch (e) {
+            console.warn('Could not load font.', e);
+        }
+
+        const formatCurrencyForPDF = (amount: number) => {
+            const prefix = hasCustomFont ? currencySymbol : (currencySymbol === '₦' ? 'NGN ' : currencySymbol);
+            return `${prefix}${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        };
+
+        doc.setTextColor(242, 242, 242);
+        doc.setFontSize(80);
+        doc.text("ZENEVA", 105, 150, { align: "center", angle: 45 });
+        
+        doc.setTextColor(20, 20, 20);
+        doc.setFontSize(18);
+        doc.text(business?.name || "Zeneva POS", 14, 18);
+        
+        doc.setFontSize(12);
+        doc.setTextColor(60, 60, 60);
+        doc.text("Sales Statement Breakdown", 14, 25);
+        
+        doc.setFontSize(9);
+        doc.setTextColor(110, 110, 110);
+        doc.text(`Generated: ${format(new Date(), 'EEEE, MMMM d, yyyy, hh:mm a')}`, 14, 31);
+        
+        const hasOverride = business?.settings?.allowPosPriceOverride;
+        const tableColumn = ["Date", "Receipt", "Product", "Qty", "Unit Cost", "Sell Price", ...(hasOverride ? ["Override"] : []), "Profit"];
+        
+        const tableRows = filteredItems.map(item => [
+            item.date,
+            item.receiptRef,
+            item.name,
+            item.qty.toString(),
+            formatCurrencyForPDF(item.unitCost),
+            formatCurrencyForPDF(item.sellingPrice),
+            ...(hasOverride ? [item.isOverride ? "Yes" : "-"] : []),
+            formatCurrencyForPDF(item.profit)
+        ]);
+
+        tableRows.push([
+            { content: "Totals", colSpan: 3, styles: { halign: 'right' } } as any,
+            totalFilteredQty.toString(),
+            formatCurrencyForPDF(totalFilteredCost),
+            formatCurrencyForPDF(totalFilteredRevenue),
+            ...(hasOverride ? [""] : []),
+            formatCurrencyForPDF(totalFilteredProfit)
+        ]);
+        
+        autoTable(doc, {
+            head: [tableColumn],
+            body: tableRows,
+            startY: 38,
+            theme: 'grid',
+            styles: { 
+                fontSize: 8, 
+                cellPadding: 3.5,
+                font: hasCustomFont ? 'Roboto' : 'helvetica'
+            },
+            headStyles: { 
+                fillColor: [249, 115, 22], 
+                textColor: [255, 255, 255], 
+                fontStyle: 'bold' 
+            },
+            alternateRowStyles: { fillColor: [250, 250, 250] },
+            didParseCell: function(data) {
+                if (data.row.index === tableRows.length - 1) {
+                    data.cell.styles.fontStyle = 'bold';
+                    data.cell.styles.fillColor = [240, 240, 240];
+                    if (data.column.index === tableColumn.length - 1) {
+                        data.cell.styles.textColor = [5, 150, 105];
+                    }
+                }
+            },
+            willDrawPage: function (data) {
+                if (data.pageNumber > 1) {
+                    doc.setTextColor(242, 242, 242);
+                    doc.setFontSize(80);
+                    doc.text("ZENEVA", 105, 150, { align: "center", angle: 45 });
+                }
+            },
+            didDrawPage: function (data) {
+                doc.setFontSize(8);
+                doc.setTextColor(130, 130, 130);
+                if (hasCustomFont) doc.setFont('Roboto');
+                doc.text(`Page ${data.pageNumber}`, 14, doc.internal.pageSize.height - 10);
+                doc.textWithLink("Generated via zeneva.space", doc.internal.pageSize.width - 55, doc.internal.pageSize.height - 10, { url: "https://zeneva.space" });
+            }
+        });
+
+        doc.save(`zeneva-sales-breakdown-${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+    };
+
+    const handleExportPDF = async () => {
+        toast({
+            title: t('reports.generatingPdf'),
+            description: t('reports.generatingPdfBody'),
+        });
+
+        const doc = new jsPDF();
+        
+        let hasCustomFont = false;
+        try {
+            const fontUrl = 'https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Me5WZLCzYlKw.ttf';
+            const fontResponse = await fetch(fontUrl);
+            if (fontResponse.ok) {
+                const buffer = await fontResponse.arrayBuffer();
+                const bytes = new Uint8Array(buffer);
+                let binary = '';
+                for (let i = 0; i < bytes.byteLength; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                }
+                const base64 = window.btoa(binary);
+                doc.addFileToVFS('Roboto.ttf', base64);
+                doc.addFont('Roboto.ttf', 'Roboto', 'normal');
+                doc.setFont('Roboto');
+                hasCustomFont = true;
+            }
+        } catch (e) {
+            console.warn('Could not load font.', e);
+        }
+
+        const formatCurrencyForPDF = (amount: number) => {
+            const prefix = hasCustomFont ? currencySymbol : (currencySymbol === '₦' ? 'NGN ' : currencySymbol);
+            const isNegative = amount < 0;
+            const abs = Math.abs(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            return isNegative ? `-${prefix}${abs}` : `${prefix}${abs}`;
+        };
+
+        doc.setTextColor(242, 242, 242);
+        doc.setFontSize(80);
+        doc.text("ZENEVA", 105, 150, { align: "center", angle: 45 });
+        
+        doc.setTextColor(20, 20, 20);
+        doc.setFontSize(18);
+        doc.text(business?.name || "Zeneva POS", 14, 18);
+        
+        doc.setFontSize(12);
+        doc.setTextColor(60, 60, 60);
+        doc.text("Advanced Profit & Loss Statement", 14, 25);
+        
+        doc.setFontSize(9);
+        doc.setTextColor(110, 110, 110);
+        doc.text(`Generated: ${format(new Date(), 'EEEE, MMMM d, yyyy')}`, 14, 31);
+
+        /*
+         * The PDF body stays English, deliberately, and this is a font limitation rather
+         * than an oversight. The embedded face is DM Sans `latin-400-normal.ttf` — the Latin
+         * subset — and when that fetch fails jsPDF falls back to built-in Helvetica, which is
+         * WinAnsi-encoded. Neither carries a Korean, Japanese, Chinese or Arabic glyph, so a
+         * translated statement would export as blank boxes: worse than English, not better.
+         * Shipping this properly means bundling a CJK/Arabic face per locale (~5-15MB each),
+         * which is its own decision.
+         *
+         * `didParseCell` below also string-matches these labels to bold the section rows, so
+         * translating them in place would silently lose the styling as well.
+         */
+        const tableColumn = ["Financial Line Item", "Amount", "% of Gross Revenue"];
+        const netSales = financialSummary.netSales;
+        const tableRows = [
+            ["Revenue", "", ""],
+            ["  Gross Sales Revenue", formatCurrencyForPDF(financialSummary.grossRevenue), "100.0%"],
+            ["  Less: Discounts & Price Markdowns", `(${formatCurrencyForPDF(financialSummary.totalDiscounts)})`, `${financialSummary.grossRevenue > 0 ? ((financialSummary.totalDiscounts / financialSummary.grossRevenue) * 100).toFixed(1) : '0.0'}%`],
+            ...(financialSummary.totalPurchases > 0 ? [
+                [
+                    "  Less: Supplier Purchases (Paid from Revenue)",
+                    `(${formatCurrencyForPDF(financialSummary.totalPurchases)})`,
+                    `${financialSummary.grossRevenue > 0 ? ((financialSummary.totalPurchases / financialSummary.grossRevenue) * 100).toFixed(1) : '0.0'}%`
+                ]
+            ] : []),
+            ["Net Sales Revenue", formatCurrencyForPDF(netSales), `${financialSummary.grossRevenue > 0 ? ((netSales / financialSummary.grossRevenue) * 100).toFixed(1) : '0.0'}%`],
+            ["", "", ""],
+            ["Cost of Goods Sold (COGS)", "", ""],
+            ...(financialSummary.totalPurchases > 0 ? [
+                [
+                    "  Cost of Goods Sold (Unit Costs)",
+                    `Covered by Supplier Purchases above (${formatCurrencyForPDF(financialSummary.totalCogs)})`,
+                    "0.0%"
+                ]
+            ] : financialSummary.totalCogs > 0 ? [
+                [
+                    "  Cost of Goods Sold (Unit Costs)",
+                    `(${formatCurrencyForPDF(financialSummary.totalCogs)})`,
+                    `${financialSummary.grossRevenue > 0 ? ((financialSummary.totalCogs / financialSummary.grossRevenue) * 100).toFixed(1) : '0.0'}%`
+                ]
+            ] : [
+                ["  Total Cost of Goods Sold", `(${formatCurrencyForPDF(0)})`, "0.0%"]
+            ]),
+            ["", "", ""],
+            ["Gross Profit", formatCurrencyForPDF(financialSummary.grossProfit), `${financialSummary.grossMarginPct.toFixed(1)}%`],
+            ["", "", ""],
+            ["Operating Expenses", "", ""],
+            ...Object.entries(financialSummary.expenseCategoryTotals).map(([cat, amt]) => [
+                `  ${cat.replace(/_/g, ' ')}`,
+                `(${formatCurrencyForPDF(amt)})`,
+                `${financialSummary.grossRevenue > 0 ? ((amt / financialSummary.grossRevenue) * 100).toFixed(1) : '0.0'}%`
+            ]),
+            ["  Total Operating Expenses", `(${formatCurrencyForPDF(financialSummary.totalOperatingExpenses)})`, `${financialSummary.grossRevenue > 0 ? ((financialSummary.totalOperatingExpenses / financialSummary.grossRevenue) * 100).toFixed(1) : '0.0'}%`],
+            ["", "", ""],
+            ...(financialSummary.totalProfitReinvested > 0 ? [
+                ["Operating Net Profit", formatCurrencyForPDF(financialSummary.operatingNetProfit), `${financialSummary.grossRevenue > 0 ? ((financialSummary.operatingNetProfit / financialSummary.grossRevenue) * 100).toFixed(1) : '0.0'}%`],
+                ["Profit Reinvestments (Capital/Expansion)", `(${formatCurrencyForPDF(financialSummary.totalProfitReinvested)})`, `${financialSummary.grossRevenue > 0 ? ((financialSummary.totalProfitReinvested / financialSummary.grossRevenue) * 100).toFixed(1) : '0.0'}%`],
+                ["Retained Net Profit", formatCurrencyForPDF(financialSummary.netProfit), `${financialSummary.netMarginPct.toFixed(1)}%`]
+            ] : [
+                ["Net Operating Profit", formatCurrencyForPDF(financialSummary.netProfit), `${financialSummary.netMarginPct.toFixed(1)}%`]
+            ])
+        ];
+
+        autoTable(doc, {
+            head: [tableColumn],
+            body: tableRows,
+            startY: 38,
+            theme: 'grid',
+            styles: { fontSize: 9, cellPadding: 4 },
+            headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold' },
+            alternateRowStyles: { fillColor: [250, 250, 250] },
+            didParseCell: function(data) {
+                const rowLabel = (data.row.raw as any)?.[0];
+                if (rowLabel === "Revenue" || rowLabel === "Cost of Goods Sold (COGS)" || rowLabel === "Operating Expenses" || rowLabel === "Profit Reinvestments (Capital/Expansion)") {
+                    data.cell.styles.fontStyle = 'bold';
+                    data.cell.styles.fillColor = [240, 240, 240];
+                }
+                if (rowLabel === "Net Sales Revenue" || rowLabel === "Gross Profit" || rowLabel === "Net Operating Profit" || rowLabel === "Retained Net Profit") {
+                    data.cell.styles.fontStyle = 'bold';
+                    data.cell.styles.textColor = [15, 23, 42];
+                    if (rowLabel === "Net Operating Profit" || rowLabel === "Retained Net Profit") {
+                        data.cell.styles.fillColor = [230, 245, 230];
+                    }
+                }
+            }
+        });
+
+        doc.save(`zeneva-profit-loss-${format(new Date(), 'yyyy-MM-dd')}.pdf`);
+        toast({
+            variant: 'success',
+            title: t('reports.exportSuccessful'),
+            description: t('reports.plsExportedBody'),
+        });
+    };
+
+    const formatCardAmount = (val: number | undefined | null) => {
+        const numVal = Number(val) || 0;
+        const isNegative = numVal < 0;
+        const absStr = Math.abs(numVal).toLocaleString(undefined, { maximumFractionDigits: 0 });
+        return isNegative ? `-${currencySymbol}${absStr}` : `${currencySymbol}${absStr}`;
+    };
+
+    return (
+        <div className="space-y-6 animate-in fade-in duration-300 px-2 lg:px-6">
+            {/* Executive P&L Key Metrics */}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                <Card className="border border-border/60 bg-gradient-to-br from-card to-muted/20">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                        <CardTitle className="text-sm font-semibold text-muted-foreground">
+                            {financialSummary.totalPurchases > 0 ? t('reports.plsNetSalesRevenue') : t('reports.plsGrossRevenue')}
+                        </CardTitle>
+                        <DollarSign className="h-4 w-4 text-emerald-500" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-black">{formatCardAmount(financialSummary.netSales)}</div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                            {financialSummary.totalPurchases > 0
+                                ? `Gross: ${currencySymbol}${Math.round(financialSummary.grossRevenue).toLocaleString()} · Purchases: -${currencySymbol}${Math.round(financialSummary.totalPurchases).toLocaleString()}`
+                                : t('reports.plsGrossRevenueHint')}
+                        </p>
+                    </CardContent>
+                </Card>
+
+                <Card className="border border-border/60 bg-gradient-to-br from-card to-muted/20">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                        <CardTitle className="text-sm font-semibold text-muted-foreground">{t('reports.plsCogs')}</CardTitle>
+                        <FileText className="h-4 w-4 text-amber-500" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-black">
+                            {formatCardAmount(financialSummary.totalPurchases > 0 ? financialSummary.totalPurchases : financialSummary.effectiveCogs)}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                            {financialSummary.totalPurchases > 0
+                                ? `Covered via Supplier Purchases (Unit COGS: ${formatCardAmount(financialSummary.totalCogs)})`
+                                : t('reports.plsCogsHint')}
+                        </p>
+                    </CardContent>
+                </Card>
+
+                <Card className="border border-border/60 bg-gradient-to-br from-card to-muted/20">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                        <CardTitle className="text-sm font-semibold text-muted-foreground">{t('reports.colGrossProfit')}</CardTitle>
+                        <Coins className="h-4 w-4 text-indigo-500" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className={`text-2xl font-black ${financialSummary.grossProfit < 0 ? 'text-destructive' : ''}`}>{formatCardAmount(financialSummary.grossProfit)}</div>
+                        <div className="flex items-center gap-1.5 mt-1">
+                            <Badge variant="secondary" className="text-[10px] font-bold px-1.5 py-0 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+                                {t('reports.plsMarginPct', {
+                                    pct: financialSummary.grossMarginPct.toFixed(1),
+                                })}
+                            </Badge>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <Card className="border border-rose-500/30 bg-gradient-to-br from-rose-500/10 via-card to-card">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                        <CardTitle className="text-sm font-semibold text-rose-600 dark:text-rose-400">{t('reports.plsOperatingExpenses')}</CardTitle>
+                        <TrendingDown className="h-4 w-4 text-rose-500" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-black text-rose-600 dark:text-rose-400">
+                            {formatCardAmount(financialSummary.totalOperatingExpenses)}
+                        </div>
+                        <p className="text-xs text-rose-600/80 dark:text-rose-400/80 mt-1 font-medium">
+                            {financialSummary.grossRevenue > 0 ? ((financialSummary.totalOperatingExpenses / financialSummary.grossRevenue) * 100).toFixed(1) : '0.0'}% of Revenue
+                        </p>
+                    </CardContent>
+                </Card>
+
+                <Card className="border border-emerald-500/30 bg-gradient-to-br from-emerald-500/10 via-card to-card">
+                    <CardHeader className="flex flex-row items-center justify-between pb-2">
+                        <CardTitle className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">{t('reports.plsNetOperatingIncome')}</CardTitle>
+                        <TrendingUp className="h-4 w-4 text-emerald-500" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className={`text-2xl font-black ${financialSummary.netProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}>
+                            {formatCardAmount(financialSummary.netProfit)}
+                        </div>
+                        <p className="text-xs text-emerald-600/80 dark:text-emerald-400/80 mt-1 font-medium">
+                            {t('reports.plsNetMarginPct', {
+                                pct: financialSummary.netMarginPct.toFixed(1),
+                            })}
+                        </p>
+                    </CardContent>
+                </Card>
+            </div>
+
+            {/* Comprehensive Visual Analytics */}
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                <div className="lg:col-span-3">
+                    <ProfitLossChart receipts={receipts} currencySymbol={currencySymbol} />
+                </div>
+                <div className="lg:col-span-2">
+                    {/*
+                        Swapped from the old `TopProductsChart`, which capped at five,
+                        keyed its aggregation on the display name (merging two products
+                        that share a name) and could only rank by units. On a Profit &
+                        Loss tab, ranking by profit is the whole point.
+                    */}
+                    <TopItemsPanel
+                        receipts={receipts}
+                        products={products}
+                        kind="product"
+                        currencySymbol={currencySymbol}
+                    />
+                </div>
+            </div>
+
+            {/* Sales Statement Breakdown */}
+            <Card className="border border-border/50">
+                <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4">
+                    <div>
+                        <CardTitle className="flex items-center gap-2">
+                            <FileText className="h-5 w-5 text-primary" /> Sales Statement Breakdown
+                        </CardTitle>
+                        <CardDescription>
+                            Detailed breakdown of every item sold and its profit margin.
+                        </CardDescription>
+                    </div>
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <div className="relative flex-1 sm:w-64">
+                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder="Search product or receipt..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="pl-9 h-9 w-full"
+                            />
+                        </div>
+                        <Button variant="outline" size="sm" onClick={() => {
+                            const rows: (string | number)[][] = [
+                                ['Date', 'Receipt', 'Product', 'Qty', 'Unit Cost', 'Selling Price', 'Total Profit'],
+                                ...filteredItems.map(item => [
+                                    item.date,
+                                    item.receiptRef,
+                                    item.name,
+                                    item.qty,
+                                    item.unitCost,
+                                    item.sellingPrice,
+                                    item.profit
+                                ])
+                            ];
+                            const filename = `zeneva-profit-statement-${new Date().toISOString().slice(0, 10)}.csv`;
+                            downloadCsv(filename, rows);
+                            logExportEvent(firestore, {
+                                businessId: business?.id || '',
+                                businessName: business?.name,
+                                userId: currentUserProfile?.id || '',
+                                userName: currentUserProfile?.name || '',
+                                userEmail: currentUserProfile?.email || '',
+                                exportType: 'profit_loss',
+                                filename,
+                                recordCount: rows.length,
+                            });
+                        }}>
+                            <Download className="mr-2 h-3.5 w-3.5" /> Export CSV
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={handleExportBreakdownPDF}>
+                            <Printer className="mr-2 h-3.5 w-3.5" /> Export PDF
+                        </Button>
+                    </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                        <Table>
+                            <TableHeader>
+                                <TableRow className="bg-muted/50 hover:bg-transparent">
+                                    <TableHead>Date</TableHead>
+                                    <TableHead>Product</TableHead>
+                                    <TableHead className="text-right">Qty</TableHead>
+                                    <TableHead className="text-right">Unit Cost</TableHead>
+                                    <TableHead className="text-right">Sell Price</TableHead>
+                                    {business?.settings?.allowPosPriceOverride && <TableHead className="text-center">Override</TableHead>}
+                                    <TableHead className="text-right font-bold text-indigo-600 dark:text-indigo-400">Profit</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {paginatedItems.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                                            No sales data matches your search.
+                                        </TableCell>
+                                    </TableRow>
+                                ) : (
+                                    <>
+                                        {paginatedItems.map((item) => (
+                                            <TableRow key={item.id} className="hover:bg-muted/30">
+                                                <TableCell className="whitespace-nowrap">{item.date}</TableCell>
+                                                <TableCell className="font-medium">{item.name}</TableCell>
+                                                <TableCell className="text-right">{item.qty}</TableCell>
+                                                <TableCell className="text-right">{currencySymbol}{item.unitCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                                                <TableCell className="text-right">{currencySymbol}{item.sellingPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                                                {business?.settings?.allowPosPriceOverride && (
+                                                    <TableCell className="text-center">
+                                                        {item.isOverride ? (
+                                                            item.overrideNote ? (
+                                                                <TooltipProvider>
+                                                                    <Tooltip>
+                                                                        <TooltipTrigger className="cursor-help">
+                                                                            <Badge variant="outline" className="border-amber-500/30 text-amber-600 bg-amber-500/10">Yes</Badge>
+                                                                        </TooltipTrigger>
+                                                                        <TooltipContent side="top">
+                                                                            <p className="max-w-[200px] text-xs font-medium">{item.overrideNote}</p>
+                                                                        </TooltipContent>
+                                                                    </Tooltip>
+                                                                </TooltipProvider>
+                                                            ) : (
+                                                                <Badge variant="outline" className="border-amber-500/30 text-amber-600 bg-amber-500/10">Yes</Badge>
+                                                            )
+                                                        ) : (
+                                                            <span className="text-muted-foreground">-</span>
+                                                        )}
+                                                    </TableCell>
+                                                )}
+                                                <TableCell className="text-right font-medium text-emerald-600 dark:text-emerald-400">
+                                                    {currencySymbol}{item.profit.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                        <TableRow className="bg-muted/10 font-bold border-t-2">
+                                            <TableCell colSpan={2} className="text-right">Totals</TableCell>
+                                            <TableCell className="text-right">{totalFilteredQty}</TableCell>
+                                            <TableCell className="text-right text-muted-foreground">{currencySymbol}{totalFilteredCost.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                                            <TableCell className="text-right text-muted-foreground">{currencySymbol}{totalFilteredRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                                            {business?.settings?.allowPosPriceOverride && <TableCell></TableCell>}
+                                            <TableCell className="text-right text-emerald-700 dark:text-emerald-400 font-black">
+                                                {currencySymbol}{totalFilteredProfit.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                            </TableCell>
+                                        </TableRow>
+                                    </>
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
+                    
+                    {totalPages > 1 && (
+                        <div className="flex items-center justify-between px-4 py-3 border-t">
+                            <Button 
+                                variant="outline" 
+                                size="sm" 
+                                disabled={page === 1} 
+                                onClick={() => setPage(p => Math.max(1, p - 1))}
+                            >
+                                Previous
+                            </Button>
+                            <span className="text-sm text-muted-foreground">
+                                Page {page} of {totalPages}
+                            </span>
+                            <Button 
+                                variant="outline" 
+                                size="sm" 
+                                disabled={page >= totalPages} 
+                                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                            >
+                                Next
+                            </Button>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+
+            {/* Formal Income Statement Table */}
+            <Card className="border border-border/50">
+                <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/10 pb-4">
+                    <div>
+                        <CardTitle className="flex items-center gap-2">
+                            <FileText className="h-5 w-5 text-primary" /> {t('reports.plsTitle')}
+                        </CardTitle>
+                        <CardDescription className="mt-1">
+                            {t('reports.plsSubtitle')}
+                        </CardDescription>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={handleExportPDF} className="hidden sm:flex">
+                        <Download className="mr-2 h-4 w-4" /> {t('reports.plsExportStatement')}
+                    </Button>
+                </CardHeader>
+                <CardContent className="p-0">
+                    <Table>
+                        <TableHeader>
+                            <TableRow className="bg-muted/50 hover:bg-transparent">
+                                <TableHead className="font-semibold text-foreground">{t('reports.plsColLineItem')}</TableHead>
+                                <TableHead className="text-right font-semibold text-foreground">{t('reports.plsColAmount', { symbol: currencySymbol })}</TableHead>
+                                <TableHead className="text-right font-semibold text-foreground">{t('reports.plsColPctGross')}</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {/* Revenue Section */}
+                            <TableRow className="bg-muted/20">
+                                <TableCell colSpan={3} className="font-bold text-foreground py-2 text-xs uppercase tracking-wider">{t('reports.colRevenue')}</TableCell>
+                            </TableRow>
+                            <TableRow className="hover:bg-muted/30">
+                                <TableCell className="ps-8 font-medium">{t('reports.plsGrossSalesRevenue')}</TableCell>
+                                <TableCell className="text-right font-medium">{financialSummary.grossRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                                <TableCell className="text-right font-mono text-muted-foreground">100.0%</TableCell>
+                            </TableRow>
+                            <TableRow className="hover:bg-muted/30">
+                                <TableCell className="ps-8 text-muted-foreground">{t('reports.plsLessDiscounts')}</TableCell>
+                                <TableCell className="text-right font-medium text-destructive">({financialSummary.totalDiscounts.toLocaleString(undefined, { minimumFractionDigits: 2 })})</TableCell>
+                                <TableCell className="text-right font-mono text-muted-foreground">
+                                    {financialSummary.grossRevenue > 0 ? ((financialSummary.totalDiscounts / financialSummary.grossRevenue) * 100).toFixed(1) : '0.0'}%
+                                </TableCell>
+                            </TableRow>
+                            {financialSummary.totalPurchases > 0 && (
+                                <TableRow className="hover:bg-muted/30">
+                                    <TableCell className="ps-8 text-muted-foreground">{t('reports.plsLessPurchases')}</TableCell>
+                                    <TableCell className="text-right font-medium text-amber-600">({financialSummary.totalPurchases.toLocaleString(undefined, { minimumFractionDigits: 2 })})</TableCell>
+                                    <TableCell className="text-right font-mono text-muted-foreground">
+                                        {financialSummary.grossRevenue > 0 ? ((financialSummary.totalPurchases / financialSummary.grossRevenue) * 100).toFixed(1) : '0.0'}%
+                                    </TableCell>
+                                </TableRow>
+                            )}
+                            <TableRow className="font-semibold border-b border-muted">
+                                <TableCell className="ps-4">{t('reports.plsNetSalesRevenue')}</TableCell>
+                                <TableCell className="text-right">{financialSummary.netSales.toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                                <TableCell className="text-right font-mono text-muted-foreground">
+                                    {financialSummary.grossRevenue > 0 ? ((financialSummary.netSales / financialSummary.grossRevenue) * 100).toFixed(1) : '0.0'}%
+                                </TableCell>
+                            </TableRow>
+
+                            {/* COGS Section */}
+                            <TableRow className="bg-muted/20">
+                                <TableCell colSpan={3} className="font-bold text-foreground py-2 text-xs uppercase tracking-wider">{t('reports.plsCogs')}</TableCell>
+                            </TableRow>
+                            {financialSummary.totalPurchases > 0 ? (
+                                <TableRow className="hover:bg-muted/30">
+                                    <TableCell className="ps-8 text-muted-foreground">
+                                        {t('reports.plsTotalCogs')} (Unit Costs: {currencySymbol}{financialSummary.totalCogs.toLocaleString(undefined, { minimumFractionDigits: 2 })} - covered by Supplier Purchases above)
+                                    </TableCell>
+                                    <TableCell className="text-right font-medium text-muted-foreground">—</TableCell>
+                                    <TableCell className="text-right font-mono text-muted-foreground">0.0%</TableCell>
+                                </TableRow>
+                            ) : financialSummary.totalCogs > 0 ? (
+                                <TableRow className="hover:bg-muted/30">
+                                    <TableCell className="ps-8 text-muted-foreground">{t('reports.plsTotalCogs')} (Unit Costs)</TableCell>
+                                    <TableCell className="text-right font-medium text-amber-600">({financialSummary.totalCogs.toLocaleString(undefined, { minimumFractionDigits: 2 })})</TableCell>
+                                    <TableCell className="text-right font-mono text-muted-foreground">
+                                        {financialSummary.grossRevenue > 0 ? ((financialSummary.totalCogs / financialSummary.grossRevenue) * 100).toFixed(1) : '0.0'}%
+                                    </TableCell>
+                                </TableRow>
+                            ) : (
+                                <TableRow className="hover:bg-muted/30">
+                                    <TableCell className="ps-8 text-muted-foreground">{t('reports.plsTotalCogs')}</TableCell>
+                                    <TableCell className="text-right font-medium text-muted-foreground">(0.00)</TableCell>
+                                    <TableCell className="text-right font-mono text-muted-foreground">0.0%</TableCell>
+                                </TableRow>
+                            )}
+                            <TableRow className="font-bold border-y border-muted bg-indigo-50/30 dark:bg-indigo-950/10">
+                                <TableCell className="ps-4 text-indigo-700 dark:text-indigo-300">{t('reports.colGrossProfit')}</TableCell>
+                                <TableCell className={`text-right ${financialSummary.grossProfit < 0 ? 'text-destructive font-bold' : 'text-indigo-700 dark:text-indigo-300'}`}>
+                                    {financialSummary.grossProfit < 0 
+                                        ? `(${Math.abs(financialSummary.grossProfit).toLocaleString(undefined, { minimumFractionDigits: 2 })})`
+                                        : financialSummary.grossProfit.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                </TableCell>
+                                <TableCell className="text-right font-mono text-indigo-700 dark:text-indigo-300">{financialSummary.grossMarginPct.toFixed(1)}%</TableCell>
+                            </TableRow>
+
+                            {/* Expenses Section */}
+                            <TableRow className="bg-muted/20">
+                                <TableCell colSpan={3} className="font-bold text-foreground py-2 text-xs uppercase tracking-wider">{t('reports.plsOperatingExpenses')}</TableCell>
+                            </TableRow>
+                            {Object.entries(financialSummary.expenseCategoryTotals).length > 0 ? (
+                                Object.entries(financialSummary.expenseCategoryTotals).map(([cat, amt]) => (
+                                    <TableRow key={cat} className="hover:bg-muted/30">
+                                        <TableCell className="ps-8 text-muted-foreground capitalize">{cat.replace(/_/g, ' ')}</TableCell>
+                                        <TableCell className="text-right font-medium text-rose-600 dark:text-rose-400">({amt.toLocaleString(undefined, { minimumFractionDigits: 2 })})</TableCell>
+                                        <TableCell className="text-right font-mono text-muted-foreground">
+                                            {financialSummary.grossRevenue > 0 ? ((amt / financialSummary.grossRevenue) * 100).toFixed(1) : '0.0'}%
+                                        </TableCell>
+                                    </TableRow>
+                                ))
+                            ) : null}
+                            <TableRow className="hover:bg-muted/30 font-medium">
+                                <TableCell className="ps-8 text-foreground">{t('reports.plsTotalOperatingExpenses')}</TableCell>
+                                <TableCell className="text-right font-bold text-rose-600 dark:text-rose-400">
+                                    ({financialSummary.totalOperatingExpenses.toLocaleString(undefined, { minimumFractionDigits: 2 })})
+                                </TableCell>
+                                <TableCell className="text-right font-mono text-muted-foreground">
+                                    {financialSummary.grossRevenue > 0 ? ((financialSummary.totalOperatingExpenses / financialSummary.grossRevenue) * 100).toFixed(1) : '0.0'}%
+                                </TableCell>
+                            </TableRow>
+                            
+                            {/* Net Profit Section */}
+                            {financialSummary.totalProfitReinvested > 0 ? (
+                                <>
+                                    <TableRow className="font-semibold text-sm border-t border-border/60 bg-muted/10">
+                                        <TableCell className="ps-8 font-semibold text-foreground py-3">Operating Net Profit (Trading Profit)</TableCell>
+                                        <TableCell className="text-right font-bold text-foreground py-3">
+                                            {financialSummary.operatingNetProfit.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                        </TableCell>
+                                        <TableCell className="text-right font-mono font-medium text-muted-foreground py-3">
+                                            {financialSummary.grossRevenue > 0 ? ((financialSummary.operatingNetProfit / financialSummary.grossRevenue) * 100).toFixed(1) : '0.0'}%
+                                        </TableCell>
+                                    </TableRow>
+                                    <TableRow className="font-medium text-sm text-purple-700 dark:text-purple-300 bg-purple-500/5">
+                                        <TableCell className="ps-8 py-2.5 flex items-center gap-2">
+                                            <span>Less: Profit Reinvestments (Capital & Expansion Outflows)</span>
+                                            <Badge variant="outline" className="text-[10px] bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-300">Reinvestment</Badge>
+                                        </TableCell>
+                                        <TableCell className="text-right font-bold text-purple-700 dark:text-purple-300 py-2.5">
+                                            ({financialSummary.totalProfitReinvested.toLocaleString(undefined, { minimumFractionDigits: 2 })})
+                                        </TableCell>
+                                        <TableCell className="text-right font-mono text-purple-600/80 dark:text-purple-400/80 py-2.5">
+                                            {financialSummary.grossRevenue > 0 ? ((financialSummary.totalProfitReinvested / financialSummary.grossRevenue) * 100).toFixed(1) : '0.0'}%
+                                        </TableCell>
+                                    </TableRow>
+                                    <TableRow className={`font-black text-base border-t-2 ${financialSummary.netProfit >= 0 ? 'border-primary/20 bg-emerald-50/50 dark:bg-emerald-950/20' : 'border-destructive/20 bg-rose-50/50 dark:bg-rose-950/20'}`}>
+                                        <TableCell className={`font-black py-4 ${financialSummary.netProfit >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive'}`}>Retained Net Profit (Final Surplus)</TableCell>
+                                        <TableCell className={`text-right font-black py-4 ${financialSummary.netProfit >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive'}`}>
+                                            {financialSummary.netProfit < 0 
+                                                ? `(${Math.abs(financialSummary.netProfit).toLocaleString(undefined, { minimumFractionDigits: 2 })})`
+                                                : financialSummary.netProfit.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                        </TableCell>
+                                        <TableCell className={`text-right font-mono font-bold py-4 ${financialSummary.netProfit >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive'}`}>{financialSummary.netMarginPct.toFixed(1)}%</TableCell>
+                                    </TableRow>
+                                </>
+                            ) : (
+                                <TableRow className={`font-black text-base border-t-2 ${financialSummary.netProfit >= 0 ? 'border-primary/20 bg-emerald-50/50 dark:bg-emerald-950/20' : 'border-destructive/20 bg-rose-50/50 dark:bg-rose-950/20'}`}>
+                                    <TableCell className={`font-black py-4 ${financialSummary.netProfit >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive'}`}>{t('reports.plsNetOperatingProfit')}</TableCell>
+                                    <TableCell className={`text-right font-black py-4 ${financialSummary.netProfit >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive'}`}>
+                                        {financialSummary.netProfit < 0 
+                                            ? `(${Math.abs(financialSummary.netProfit).toLocaleString(undefined, { minimumFractionDigits: 2 })})`
+                                            : financialSummary.netProfit.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                    </TableCell>
+                                    <TableCell className={`text-right font-mono font-bold py-4 ${financialSummary.netProfit >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive'}`}>{financialSummary.netMarginPct.toFixed(1)}%</TableCell>
+                                </TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
+                </CardContent>
+            </Card>
+
+            {/* Category Profitability Breakdown */}
+            <Card className="border border-border/50">
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <Layers className="h-5 w-5 text-primary" /> {t('reports.plsHeatmapTitle')}
+                    </CardTitle>
+                    <CardDescription>
+                        {t('reports.plsHeatmapSubtitle')}
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                    <Table>
+                        <TableHeader>
+                            <TableRow className="bg-muted/50 hover:bg-transparent">
+                                <TableHead className="font-semibold">{t('inventory.category')}</TableHead>
+                                <TableHead className="text-center font-semibold">{t('dashboard.unitsSold')}</TableHead>
+                                <TableHead className="text-right font-semibold">{t('reports.colRevenue')}</TableHead>
+                                <TableHead className="text-right font-semibold">{t('reports.colCogs')}</TableHead>
+                                <TableHead className="text-right font-semibold">{t('reports.colGrossProfit')}</TableHead>
+                                <TableHead className="text-center font-semibold">{t('reports.plsProfitMargin')}</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {financialSummary.categoryList.length > 0 ? (
+                                financialSummary.categoryList.map(cat => (
+                                    <TableRow key={cat.category} className="hover:bg-muted/30">
+                                        <TableCell className="font-medium text-foreground">{cat.category}</TableCell>
+                                        <TableCell className="text-center font-mono">{cat.qty}</TableCell>
+                                        <TableCell className="text-right font-medium">{currencySymbol}{cat.revenue.toLocaleString()}</TableCell>
+                                        <TableCell className="text-right text-muted-foreground">{currencySymbol}{cat.cogs.toLocaleString()}</TableCell>
+                                        <TableCell className="text-right font-bold text-indigo-600 dark:text-indigo-400">{currencySymbol}{cat.profit.toLocaleString()}</TableCell>
+                                        <TableCell className="text-center">
+                                            <Badge 
+                                                variant="outline"
+                                                className={cat.margin >= 40 ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/30" : cat.margin >= 20 ? "bg-indigo-500/10 text-indigo-600 border-indigo-500/30" : "bg-amber-500/10 text-amber-600 border-amber-500/30"}
+                                            >
+                                                {cat.margin.toFixed(1)}%
+                                            </Badge>
+                                        </TableCell>
+                                    </TableRow>
+                                ))
+                            ) : (
+                                <TableRow>
+                                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                                        {t('reports.plsHeatmapEmpty')}
+                                    </TableCell>
+                                </TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
+                </CardContent>
+            </Card>
+        </div>
+    );
+}

@@ -1,0 +1,1191 @@
+'use client';
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
+import { usePOS } from "@/context/pos-context";
+import { PlusCircle, Search, ShoppingCart, Trash2, Package, PackageOpen, Columns, Loader2, ChevronsUp, ListFilter, Archive, History, Clock, Shirt, Smartphone, Pill, Coffee, GripVertical, QrCode, Sparkles } from "lucide-react";
+import { CachedImage } from "@/components/shared/cached-image";
+import Link from "next/link";
+import * as React from "react";
+import type { Product } from '@/types';
+import { isFashionIndustry, getIndustryConfig, type IndustryConfig } from "@/lib/industry";
+import { isCoreFeatureBlocked } from "@/lib/plan";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { cn, smartSearchMatch } from "@/lib/utils";
+import { useRouter } from "next/navigation";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetFooter } from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { useToast } from "@/hooks/use-toast";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { Badge } from "@/components/ui/badge";
+import { BarcodeScanner } from "@/components/inventory/barcode-scanner";
+import { VisualProductScanner } from "@/components/pos/visual-product-scanner";
+
+import { ImageDialog } from "@/components/shared/image-dialog";
+import { CatalogUnavailable } from "@/components/shared/catalog-unavailable";
+import HeldSalesDrawer from "@/components/pos/held-sales-drawer";
+import { useI18n } from "@/context/i18n-context";
+import { Label } from "@/components/ui/label";
+import { useUser } from "@/firebase";
+
+
+function ProductCardSkeleton() {
+    return (
+        <Card className="overflow-hidden flex flex-col h-full border-[0.5px]">
+            <CardContent className="p-0">
+                <Skeleton className="w-full aspect-[4/3]" />
+            </CardContent>
+            <CardHeader className="p-3 space-y-2">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-3 w-1/2" />
+            </CardHeader>
+            <CardFooter className="p-3 pt-0 flex justify-between items-center mt-auto">
+                <Skeleton className="h-5 w-1/3" />
+                <Skeleton className="h-8 w-8 rounded-lg" />
+            </CardFooter>
+        </Card>
+    );
+}
+
+function renderCategoryIcon(icon?: string, size = 16) {
+    switch (icon) {
+        case 'shirt': return <Shirt size={size} />;
+        case 'smartphone': return <Smartphone size={size} />;
+        case 'pill': return <Pill size={size} />;
+        case 'coffee': return <Coffee size={size} />;
+        default: return <Package size={size} />;
+    }
+}
+
+const ProductItem = React.memo(({ product, currencySymbol, handleAddToCart, addToCart, onPreview, variants, isFashion, industryConfig, isReadOnly }: {
+    product: Product,
+    currencySymbol: string,
+    handleAddToCart: (product: Product) => void,
+    addToCart: any,
+    onPreview: (src: string, alt: string) => void,
+    variants?: Product[],
+    isFashion?: boolean,
+    industryConfig?: IndustryConfig,
+    isReadOnly?: boolean
+}) => {
+    const { t } = useI18n();
+    const hasVariants = variants && variants.length > 0;
+
+    return (
+        <Card key={product.id} className="overflow-hidden flex flex-col shadow-none border-[0.5px] border-border/40 bg-card/40 rounded-xl backdrop-blur-sm h-full w-full">
+            <CardContent
+                className="relative aspect-[4/3] w-full cursor-pointer bg-muted/30 p-2 flex items-center justify-center group overflow-hidden shrink-0"
+                onClick={() => product.imageUrl && onPreview(product.imageUrl, product.name)}
+            >
+                {product.imageUrl ? (
+                    <div className="relative w-full h-full flex items-center justify-center p-1">
+                        <CachedImage
+                            src={product.imageUrl}
+                            alt={product.name}
+                            className="max-w-full max-h-full h-full object-contain hover:scale-105 transition-transform"
+                        />
+                    </div>
+
+                ) : (
+                    <div className="w-full h-full bg-muted/30 flex items-center justify-center text-muted-foreground/40">
+                        {renderCategoryIcon(industryConfig?.fastSwitcherIcon, 32)}
+                    </div>
+                )}
+            </CardContent>
+            <CardHeader className="px-4 py-1 flex-grow">
+                <CardTitle className="text-sm font-medium leading-tight line-clamp-2 min-h-[2.5rem] text-foreground flex items-center gap-1.5 flex-wrap">
+                    <Link
+                        href={`/inventory/details?id=${product.id}`}
+                        className="hover:text-primary hover:underline transition-colors"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {product.name}
+                    </Link>
+                    {(product.categoryType === 'service' || product.category?.toLowerCase() === 'service' || product.category?.toLowerCase() === 'services') ? (
+                        <Badge variant="outline" className="text-[10px] h-4 bg-blue-500/10 text-blue-500 border-blue-500/20 px-1 py-0">{t('pos.serviceBadge')}</Badge>
+                    ) : (
+                        (product.stock || 0) <= 0 && !hasVariants && <Badge variant="destructive" className="text-[10px] h-4 px-1 py-0 bg-red-500/10 text-red-500 border-red-500/20">{t('pos.outOfStock')}</Badge>
+                    )}
+                </CardTitle>
+            </CardHeader>
+
+            {/* Fast Size-Switching Chips on Card */}
+            {hasVariants && (
+                <div className="px-4 pb-2 pt-0 flex flex-wrap gap-1 items-center">
+                    {variants.slice(0, 4).map(v => {
+                        const inStock = (v.stock ?? 0) > 0;
+                        return (
+                            <button
+                                key={v.id}
+                                type="button"
+                                disabled={isReadOnly || !inStock}
+                                className={cn(
+                                    "text-[10px] font-bold px-2 py-0.5 rounded-md border transition-all select-none active:scale-95",
+                                    (inStock && !isReadOnly)
+                                        ? "bg-secondary/60 hover:bg-primary hover:text-primary-foreground border-border/80 text-foreground cursor-pointer shadow-2xs" 
+                                        : "opacity-40 line-through bg-muted/20 border-border/40 cursor-not-allowed text-muted-foreground"
+                                )}
+                                title={isReadOnly ? "Plan expired" : `${v.variantValue || v.name} (${v.stock} in stock)`}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (isReadOnly) return;
+                                    addToCart(v);
+                                }}
+                            >
+                                {v.variantValue || v.name.replace(`${product.name} - `, '')}
+                            </button>
+                        );
+                    })}
+                    {variants.length > 4 && (
+                        <button
+                            type="button"
+                            disabled={isReadOnly}
+                            className="text-[10px] text-muted-foreground hover:text-primary px-1 font-semibold hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                if (isReadOnly) return;
+                                handleAddToCart(product);
+                            }}
+                        >
+                            +{variants.length - 4} more
+                        </button>
+                    )}
+                </div>
+            )}
+
+            <CardFooter className="px-4 pb-4 pt-0 flex justify-between items-end mt-auto">
+                <div className="flex flex-col">
+                    <span className="text-lg font-bold text-foreground dark:text-white"><span className="mr-0.5">{currencySymbol}</span>{product.price.toLocaleString()}</span>
+                    {product.baseUnit && <span className="text-[10px] text-muted-foreground">{t('pos.perUnit', { unit: product.baseUnit })}</span>}
+                </div>
+
+                {hasVariants ? (
+                    <Button 
+                        size="sm" 
+                        variant="outline" 
+                        disabled={isReadOnly}
+                        className="h-10 px-3 rounded-lg border-primary/30 text-primary hover:bg-primary/10 flex items-center gap-1.5 text-xs font-semibold shadow-2xs disabled:opacity-40 disabled:cursor-not-allowed" 
+                        onClick={() => handleAddToCart(product)}
+                    >
+                        {renderCategoryIcon(industryConfig?.fastSwitcherIcon, 14)}
+                        <span>{industryConfig?.cardActionLabel || 'Options'} ({variants.length})</span>
+                    </Button>
+                ) : product.uomConversions && product.uomConversions.length > 0 ? (
+                    <DropdownMenu modal={false}>
+                        <DropdownMenuTrigger asChild>
+                            <Button size="icon" variant="outline" disabled={isReadOnly} className="h-11 w-11 rounded-lg border-border/50 hover:bg-accent flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed">
+                                <PlusCircle className="h-6 w-6 text-foreground dark:text-white" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>{t('pos.selectUnit')}</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuRadioGroup onValueChange={(unit) => {
+                                if (isReadOnly) return;
+                                if (unit === 'base') {
+                                    handleAddToCart(product);
+                                } else {
+                                    const uom = product.uomConversions?.find(u => u.unitName === unit);
+                                    if (uom) {
+                                        addToCart(product, uom.unitName, uom.multiplier, uom.price);
+                                    }
+                                }
+                            }}>
+                                <DropdownMenuRadioItem value="base">
+                                    {(() => {
+                                        const unit = product.baseUnit || t('pos.piece');
+                                        const label = /^\d/.test(unit.trim()) ? unit : `1 ${unit}`;
+                                        return <>{label} (<span className="mr-0.5">{currencySymbol}</span>{product.price.toLocaleString()})</>;
+                                    })()}
+                                </DropdownMenuRadioItem>
+                                {product.uomConversions.map((uom) => (
+                                    <DropdownMenuRadioItem key={uom.unitName} value={uom.unitName}>
+                                        {(() => {
+                                            const unit = uom.unitName;
+                                            const label = /^\d/.test(unit.trim()) ? unit : `1 ${unit}`;
+                                            const unitPrice = (uom.price ?? (product.price * (uom.multiplier || 1))).toLocaleString();
+                                            return <>{label} ({uom.multiplier} {product.baseUnit || t('pos.pcs')}) (<span className="mr-0.5">{currencySymbol}</span>{unitPrice})</>;
+                                        })()}
+                                    </DropdownMenuRadioItem>
+                                ))}
+                            </DropdownMenuRadioGroup>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                ) : (
+                    <Button size="icon" variant="outline" disabled={isReadOnly} className="h-11 w-11 rounded-lg border-border/50 hover:bg-accent flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed" onClick={() => handleAddToCart(product)}>
+                        <PlusCircle className="h-6 w-6 text-foreground dark:text-white" />
+                    </Button>
+                )}
+            </CardFooter>
+        </Card>
+    );
+});
+
+ProductItem.displayName = 'ProductItem';
+
+const CartItemRow = ({ item, cartItemId, currencySymbol, updateQuantity, removeFromCart, updateCartItemPrice, t, allowPosPriceOverride, allowCostPriceOverride, isReadOnly }: any) => {
+    const { products } = usePOS();
+    const masterProduct = products?.find((p: any) => p.id === (item.product.parentId || item.product.id));
+    const baseCostPrice = item.costPriceOverride ?? item.product.costPrice ?? masterProduct?.costPrice ?? 0;
+
+    const [isEditingPrice, setIsEditingPrice] = React.useState(false);
+    const [editSalePrice, setEditSalePrice] = React.useState(item.product.price.toString());
+    const [editCostPrice, setEditCostPrice] = React.useState(baseCostPrice.toString());
+    const [editOverrideNote, setEditOverrideNote] = React.useState(item.priceOverrideNote ?? '');
+
+    React.useEffect(() => {
+        if (isEditingPrice) {
+            setEditSalePrice(item.product.price.toString());
+            setEditCostPrice(baseCostPrice.toString());
+            setEditOverrideNote(item.priceOverrideNote ?? '');
+        }
+    }, [isEditingPrice, item.product.price, baseCostPrice, item.priceOverrideNote]);
+
+    const handleSavePrices = () => {
+        const parsedSale = parseFloat(editSalePrice);
+        const parsedCost = parseFloat(editCostPrice);
+
+        const newSalePrice = (!isNaN(parsedSale) && parsedSale >= 0 && allowPosPriceOverride) ? parsedSale : undefined;
+        const newCostPrice = (!isNaN(parsedCost) && parsedCost >= 0) ? parsedCost : undefined;
+
+        updateCartItemPrice(
+            cartItemId,
+            newSalePrice,
+            newCostPrice,
+            editOverrideNote.trim() || undefined
+        );
+        setIsEditingPrice(false);
+    };
+
+    const currentSale = parseFloat(editSalePrice) || 0;
+    const currentCost = parseFloat(editCostPrice) || 0;
+    const unitProfit = currentSale - currentCost;
+    const marginPercent = currentSale > 0 ? ((unitProfit / currentSale) * 100).toFixed(1) : '0';
+    const canEditAny = (allowPosPriceOverride || allowCostPriceOverride) && !isReadOnly;
+
+    return (
+        <div className="flex justify-between items-center py-1">
+            <div className="flex-1 me-4">
+                <p className="font-medium text-sm line-clamp-1">
+                    {item.product.name}
+                    {item.unit && <Badge variant="secondary" className="ms-2 text-[10px] py-0 h-4">{item.unit}</Badge>}
+                </p>
+                {canEditAny ? (
+                    <Dialog open={isEditingPrice} onOpenChange={setIsEditingPrice}>
+                        <DialogTrigger asChild>
+                            <p className="text-xs text-muted-foreground hover:text-primary cursor-pointer transition-colors flex items-center gap-1 group">
+                                <span className="underline decoration-dotted underline-offset-2 flex items-center">
+                                    {item.isPriceOverride && item.originalPrice !== undefined && (
+                                        <span className="line-through text-muted-foreground/60 mr-1.5 text-[10px]">
+                                            {currencySymbol}{(item.originalPrice * item.quantity).toLocaleString()}
+                                        </span>
+                                    )}
+                                    <span className="mr-0.5 font-medium">{currencySymbol}</span>
+                                    <span className="font-medium">{(item.product.price * item.quantity).toLocaleString()}</span>
+                                </span>
+                                {(item.isPriceOverride || item.costPriceOverride !== undefined) && (
+                                    <span className="text-[9px] text-orange-600 bg-orange-100 dark:bg-orange-900/30 px-1 py-0 rounded flex items-center font-bold tracking-tight uppercase">
+                                        (Override)
+                                    </span>
+                                )}
+                            </p>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-[400px]">
+                            <DialogHeader>
+                                <DialogTitle>Override Price & Cost</DialogTitle>
+                                <p className="text-xs text-muted-foreground">Adjust selling price or cost price for this specific transaction to track profit accurately.</p>
+                            </DialogHeader>
+                            <div className="grid gap-4 py-3">
+                                <div className="grid gap-1.5">
+                                    <div className="flex justify-between items-center text-xs">
+                                        <Label htmlFor="salePrice" className="font-semibold">Selling Price (Unit)</Label>
+                                        <span className="text-muted-foreground">Orig: {currencySymbol}{(item.originalPrice ?? item.product.price).toLocaleString()}</span>
+                                    </div>
+                                    <div className="relative">
+                                        <span className="absolute left-3 top-2.5 text-muted-foreground text-sm">{currencySymbol}</span>
+                                        <Input
+                                            id="salePrice"
+                                            type="number"
+                                            step="0.01"
+                                            className="pl-8 text-sm"
+                                            value={editSalePrice}
+                                            onChange={(e) => setEditSalePrice(e.target.value)}
+                                            disabled={!allowPosPriceOverride}
+                                            min="0"
+                                            placeholder="Enter selling price"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid gap-1.5">
+                                    <div className="flex justify-between items-center text-xs">
+                                        <Label htmlFor="costPrice" className="font-semibold">Cost Price (Unit)</Label>
+                                        <span className="text-muted-foreground">Orig: {currencySymbol}{baseCostPrice.toLocaleString()}</span>
+                                    </div>
+                                    <div className="relative">
+                                        <span className="absolute left-3 top-2.5 text-muted-foreground text-sm">{currencySymbol}</span>
+                                        <Input
+                                            id="costPrice"
+                                            type="number"
+                                            step="0.01"
+                                            className="pl-8 text-sm"
+                                            value={editCostPrice}
+                                            onChange={(e) => setEditCostPrice(e.target.value)}
+                                            min="0"
+                                            placeholder="Enter cost price"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className={`flex items-center justify-between p-3 rounded-lg border text-xs ${unitProfit >= 0 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-400' : 'bg-rose-500/10 border-rose-500/20 text-rose-700 dark:text-rose-400'}`}>
+                                    <div>
+                                        <p className="font-medium uppercase text-[10px] tracking-wider opacity-80">Unit Profit</p>
+                                        <p className="text-base font-bold">{currencySymbol}{unitProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="font-medium uppercase text-[10px] tracking-wider opacity-80">Margin</p>
+                                        <p className="text-base font-bold">{marginPercent}%</p>
+                                    </div>
+                                </div>
+
+                                <div className="grid gap-1.5">
+                                    <Label htmlFor="overrideNote" className="text-xs font-semibold">Override Note (Optional)</Label>
+                                    <Textarea
+                                        id="overrideNote"
+                                        placeholder="Reason for price change (e.g., VIP discount, clearance)"
+                                        className="h-16 text-xs resize-none"
+                                        value={editOverrideNote}
+                                        onChange={(e) => setEditOverrideNote(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                            <DialogFooter>
+                                <Button variant="outline" size="sm" onClick={() => setIsEditingPrice(false)}>Cancel</Button>
+                                <Button size="sm" onClick={handleSavePrices}>{t('common.save') || "Save Changes"}</Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+                ) : (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1 group">
+                        <span className="flex items-center">
+                            {item.isPriceOverride && item.originalPrice !== undefined && (
+                                <span className="line-through text-muted-foreground/60 mr-1.5 text-[10px]">
+                                    {currencySymbol}{(item.originalPrice * item.quantity).toLocaleString()}
+                                </span>
+                            )}
+                            <span className="mr-0.5 font-medium">{currencySymbol}</span>
+                            <span className="font-medium">{(item.product.price * item.quantity).toLocaleString()}</span>
+                        </span>
+                        {item.isPriceOverride && (
+                            <span className="text-[9px] text-orange-600 bg-orange-100 dark:bg-orange-900/30 px-1 py-0 rounded flex items-center font-bold tracking-tight uppercase">
+                                (Override)
+                            </span>
+                        )}
+                    </p>
+                )}
+            </div>
+            <div className="flex items-center gap-2">
+                <Input
+                    type="number"
+                    value={item.quantity}
+                    onChange={(e) => updateQuantity(cartItemId, parseInt(e.target.value))}
+                    className="w-16 h-8 text-center disabled:opacity-50"
+                    min="1"
+                    disabled={isReadOnly}
+                />
+                <Button size="icon" variant="ghost" className="h-8 w-8 disabled:opacity-40" onClick={() => removeFromCart(cartItemId)} disabled={isReadOnly}>
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+            </div>
+        </div>
+    );
+};
+
+const CartContents = () => {
+    const {
+        cart,
+        removeFromCart,
+        updateQuantity,
+        updateCartItemPrice,
+        subtotal,
+        currencySymbol,
+        clearCart,
+        holdCurrentSale,
+        heldSales,
+        resumeHeldSale,
+        deleteHeldSale,
+        business
+    } = usePOS();
+    const { t } = useI18n();
+    const { currentUserProfile } = useUser();
+
+    const isReadOnly = business ? isCoreFeatureBlocked(business) : false;
+    const isAdmin = currentUserProfile?.role === 'admin' || business?.ownerId === currentUserProfile?.id;
+    const canOverridePrice = isAdmin || (
+        business?.settings?.allowPosPriceOverride === true &&
+        currentUserProfile?.permissions?.override_prices !== false
+    );
+    const canOverrideCostPrice = isAdmin;
+
+    // Suppress SSR/client hydration mismatch: cart is read from localStorage which
+    // doesn't exist on the server. Render a neutral placeholder until mounted.
+    const [isMounted, setIsMounted] = React.useState(false);
+    React.useEffect(() => { setIsMounted(true); }, []);
+
+    if (!isMounted) {
+        return (
+            <div className="flex flex-col items-center justify-center text-center text-muted-foreground p-8">
+                <ShoppingCart className="h-12 w-12 opacity-20" />
+            </div>
+        );
+    }
+
+    return (
+        <>
+            {cart.length === 0 ? (
+                <div className="flex flex-col items-center justify-center text-center text-muted-foreground p-8">
+                    <ShoppingCart className="h-12 w-12" />
+                    <p className="mt-4">{t('pos.cartEmpty')}</p>
+                </div>
+            ) : (
+                <div className="space-y-4">
+                    <div className="flex justify-between items-center mb-2">
+                        <div className="flex gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => holdCurrentSale()}
+                                disabled={isReadOnly}
+                                className="h-8 gap-1.5 px-2 text-xs font-medium border-dashed disabled:opacity-40"
+                            >
+                                <Archive className="h-3.5 w-3.5" />
+                                {t('pos.hold')}
+                            </Button>
+                        </div>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={clearCart}
+                            disabled={isReadOnly}
+                            className="text-destructive hover:text-destructive hover:bg-destructive/10 h-8 gap-1.5 px-2 text-xs font-medium disabled:opacity-40"
+                        >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            {t('pos.clearCart')}
+                        </Button>
+                    </div>
+                    {cart.map(item => {
+                        const cartItemId = item.unit ? `${item.product.id}-${item.unit}` : item.product.id;
+                        return (
+                            <CartItemRow
+                                key={cartItemId}
+                                item={item}
+                                cartItemId={cartItemId}
+                                currencySymbol={currencySymbol}
+                                updateQuantity={updateQuantity}
+                                removeFromCart={removeFromCart}
+                                updateCartItemPrice={updateCartItemPrice}
+                                t={t}
+                                allowPosPriceOverride={canOverridePrice}
+                                allowCostPriceOverride={canOverrideCostPrice}
+                                isReadOnly={isReadOnly}
+                            />
+                        );
+                    })}
+                    <Separator />
+                    <div className="flex justify-between font-semibold">
+                        <span>{t('common.subtotal')}</span>
+                        <span><span className="mr-0.5">{currencySymbol}</span>{subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                </div>
+            )}
+        </>
+    );
+};
+
+
+export default function SelectProductsPage() {
+    const {
+        cart,
+        addToCart,
+        subtotal,
+        currencySymbol,
+        products,
+        isLoading: isPosLoading,
+        business,
+        searchProducts,
+        searchProductsByField,
+        findProductBySku,
+        fetchMoreProducts,
+        isSyncing,
+        isFullSyncingProducts,
+        isProductCatalogPending,
+        productSyncError,
+        isCatalogUnverified,
+        retryProductSync,
+        currentUserProfile,
+        heldSales,
+        resumeHeldSale,
+        deleteHeldSale,
+        holdCurrentSale
+    } = usePOS();
+    const router = useRouter();
+    const { toast } = useToast();
+    const { t } = useI18n();
+
+    const isReadOnly = business ? isCoreFeatureBlocked(business) : false;
+    const [searchTerm, setSearchTerm] = React.useState('');
+    const [categoryFilter, setCategoryFilter] = React.useState('all');
+    const [columns, setColumns] = React.useState<'auto' | '3' | '4' | '5' | '6'>('4');
+    
+    const gridClassName = React.useMemo(() => {
+        switch (columns) {
+            case '3': return 'grid grid-cols-2 sm:grid-cols-3 gap-3.5 w-full';
+            case '4': return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3.5 w-full';
+            case '5': return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5 w-full';
+            case '6': return 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3.5 w-full';
+            default: return 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3.5 w-full';
+        }
+    }, [columns]);
+
+    const [isNavigating, setIsNavigating] = React.useState(false);
+    const [isScannerOpen, setIsScannerOpen] = React.useState(false);
+    const [isVisionScannerOpen, setIsVisionScannerOpen] = React.useState(false);
+    
+    // Custom drag resize logic for the cart
+    const [cartWidth, setCartWidth] = React.useState(350);
+    const [isDragging, setIsDragging] = React.useState(false);
+
+    React.useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!isDragging) return;
+            // Calculate new width based on distance from right edge
+            const newWidth = window.innerWidth - e.clientX;
+            // Constrain width between 280px and 60% of the screen
+            setCartWidth(Math.max(280, Math.min(newWidth, window.innerWidth * 0.6)));
+        };
+
+        const handleMouseUp = () => {
+            if (isDragging) setIsDragging(false);
+        };
+
+        if (isDragging) {
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', handleMouseUp);
+            // Prevent text selection while dragging
+            document.body.style.userSelect = 'none';
+        } else {
+            document.body.style.userSelect = '';
+        }
+
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+            document.body.style.userSelect = '';
+        };
+    }, [isDragging]);
+
+
+    const [previewImage, setPreviewImage] = React.useState<{ src: string, alt: string } | null>(null);
+
+
+    // Subscription status is now managed by the background glassmorphism overlay in layout.tsx.
+
+    const [isFetchingMore, setIsFetchingMore] = React.useState(false);
+    const [hasMore, setHasMore] = React.useState(products ? products.length >= 50 : true);
+
+    const isNative = typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__;
+    /*
+     * The grid keeps its skeleton until the catalogue is genuinely resolved.
+     *
+     * `isProductCatalogPending` is the context's single answer to "still coming?"
+     * — it stays true through the local-mirror hydration, the full sync and the
+     * gap before a scheduled retry, and it goes false only on a completed sync, a
+     * recorded failure, or going offline. The old rule inferred loading from
+     * `isPosLoading`, which resolved as soon as a sync *finished in any way*
+     * including a failure, so a shop with a full catalogue dropped straight
+     * through to "No products found".
+     *
+     * `products.length === 0` deliberately does not appear here on its own: it
+     * cannot tell an empty shop from a catalogue that never arrived, and that
+     * conflation is the bug.
+     */
+    const isLoading = isProductCatalogPending ||
+        (isNative
+            ? (isPosLoading && (!products || products.length === 0))
+            : (isPosLoading || (isFullSyncingProducts && (!products || products.length === 0))));
+
+    /**
+     * The grid is empty because the catalogue could not be loaded, not because the
+     * shop has nothing.
+     *
+     * This tested `!!productSyncError`, which misses the case that actually reached
+     * users: a shell pinned offline by a bad OS connectivity flag has no *recorded*
+     * error — it simply never got to sync — so the till fell through to "No products
+     * found" with a cashier standing at it. `isCatalogUnverified` covers both, and
+     * `productSyncError` is passed on to `<CatalogUnavailable />` to pick the wording.
+     *
+     * Note that `isCatalogUnverified` is now false once the server has answered
+     * "no products" for this shop, so a shop that genuinely has none gets the
+     * empty state below rather than this one — which is what a brand-new shop
+     * should see, and what it was not seeing.
+     */
+    const isCatalogUnavailable = !isLoading && isCatalogUnverified && (!products || products.length === 0);
+
+    /** A search or a category is narrowing the grid, so "nothing here" is about the filter. */
+    const isFiltered = !!searchTerm || categoryFilter !== 'all';
+
+    /*
+     * Same fallback as the Inventory page: an explicit permission wins, otherwise
+     * the role decides. A cashier without it must not be shown "Add Product" —
+     * `/inventory/add` redirects them straight back out again.
+     */
+    const canManageStock = currentUserProfile?.permissions?.manage_inventory
+        ?? (currentUserProfile?.role === 'admin' || currentUserProfile?.role === 'manager');
+
+    const performManualSearch = () => {
+        if (!searchTerm.trim()) return;
+
+        const exactMatch = products?.find(p =>
+            p.sku?.toLowerCase() === searchTerm.toLowerCase() ||
+            p.name.toLowerCase() === searchTerm.toLowerCase()
+        );
+
+        if (exactMatch) {
+            if (exactMatch.isArchived) {
+                toast({
+                    variant: "destructive",
+                    title: "Product Discontinued / Archived",
+                    description: `${exactMatch.name} is archived. Restore it in Inventory to sell.`
+                });
+                return;
+            }
+            addToCart(exactMatch);
+            setSearchTerm('');
+            toast({
+                title: t('pos.addedToCart'),
+                description: exactMatch.name
+            });
+        }
+    };
+
+
+    const filteredProducts = React.useMemo(() => {
+        // Hide child variants and archived/discontinued products from main selling grid
+        let base = (products || []).filter(p => !p.parentId && !p.isArchived);
+
+        // Apply instant local substring filter with smart hyphen/space-tolerant search
+        if (searchTerm.trim()) {
+            base = base.filter(p =>
+                smartSearchMatch(p.name, searchTerm) ||
+                smartSearchMatch(p.sku, searchTerm) ||
+                smartSearchMatch(p.barcode, searchTerm) ||
+                smartSearchMatch(p.category, searchTerm)
+            );
+        }
+
+        if (categoryFilter !== 'all') {
+            base = base.filter(p => p.category === categoryFilter);
+        }
+
+        return base;
+    }, [products, searchTerm, categoryFilter]);
+
+
+
+    const industryConfig = React.useMemo(() => {
+        return getIndustryConfig(business?.settings?.industry || (business as any)?.category);
+    }, [business]);
+
+    const isFashion = React.useMemo(() => {
+        return isFashionIndustry(business?.settings?.industry || (business as any)?.category);
+    }, [business]);
+
+    const productVariants = React.useMemo(() => {
+        const map = new Map<string, Product[]>();
+        (products || []).forEach(p => {
+            if (p.parentId) {
+                const list = map.get(p.parentId) || [];
+                list.push(p);
+                map.set(p.parentId, list);
+            }
+        });
+        return map;
+    }, [products]);
+
+    const [variantParent, setVariantParent] = React.useState<Product | null>(null);
+
+    const handleAddToCart = React.useCallback((product: Product) => {
+        if (isReadOnly) {
+            toast({
+                title: "Plan Expired",
+                description: "Your 30-day trial or plan has ended. Please upgrade your plan to record new sales.",
+                variant: "destructive"
+            });
+            return;
+        }
+        const childVariants = products?.filter(p => p.parentId === product.id) || [];
+        if (product.type === 'variant' || childVariants.length > 0) {
+            setVariantParent(product);
+        } else {
+            addToCart(product);
+        }
+    }, [addToCart, products, isReadOnly, toast]);
+
+    const handleVisionProductSelect = React.useCallback((product: Product) => {
+        if (isReadOnly) {
+            toast({
+                title: "Plan Expired",
+                description: "Your 30-day trial or plan has ended. Please upgrade your plan to record new sales.",
+                variant: "destructive"
+            });
+            return;
+        }
+
+        if (product.isArchived) {
+            toast({
+                variant: "destructive",
+                title: "Product Discontinued / Archived",
+                description: `${product.name} is archived. Restore it in Inventory to sell.`
+            });
+            return;
+        }
+
+        handleAddToCart(product);
+        toast({
+            title: "Added via AI Vision",
+            description: `${product.name} added to cart`,
+        });
+    }, [handleAddToCart, isReadOnly, toast]);
+
+    const handleScan = (sku: string) => {
+        if (isReadOnly) {
+            toast({
+                title: "Plan Expired",
+                description: "Your 30-day trial or plan has ended. Please upgrade your plan to record new sales.",
+                variant: "destructive"
+            });
+            return;
+        }
+        const product = products?.find(p => p.sku === sku);
+
+        if (product) {
+            if (product.isArchived) {
+                toast({
+                    variant: "destructive",
+                    title: "Product Discontinued / Archived",
+                    description: `${product.name} is archived. Restore it in Inventory to sell.`
+                });
+                return;
+            }
+            addToCart(product);
+            toast({
+                title: t('pos.productAdded'),
+                description: t('pos.productAddedDescription', { name: product.name }),
+            });
+            setIsScannerOpen(false);
+        } else {
+            toast({
+                variant: "destructive",
+                title: t('pos.productNotFound'),
+                description: t('pos.productNotFoundDescription', { sku }),
+            });
+        }
+    };
+
+
+    const handleNext = () => {
+        if (isReadOnly) {
+            toast({
+                title: "Plan Expired",
+                description: "Your 30-day trial or plan has ended. Please upgrade your plan to record new sales.",
+                variant: "destructive"
+            });
+            return;
+        }
+        setIsNavigating(true);
+        router.push('/sales/pos/customer');
+    };
+
+    return (
+        <div className="flex flex-col md:flex-row w-full gap-4 md:gap-4">
+            <div className="flex-1 min-w-0 pr-0 md:pr-2">
+                <div className="flex flex-col mb-4 gap-2 sticky top-0 bg-background py-2 z-10 border-b">
+                    <div className="flex items-center gap-2">
+                        <div className="relative flex-1 group">
+                            <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                            <Input
+                                placeholder={t('pos.searchNameOrSku')}
+                                className="ps-8 ring-offset-background focus-visible:ring-primary h-11"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        performManualSearch();
+                                    }
+                                }}
+                            />
+
+                        </div>
+                        <Button
+                            variant="secondary"
+                            size="icon"
+                            className="h-11 w-11 shrink-0 border shadow-sm hover:shadow-md transition-all active:scale-95"
+                            onClick={performManualSearch}
+                            aria-label={t('common.search')}
+                        >
+                            <Search className="h-4 w-4" />
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-11 w-11 md:hidden shrink-0 border-primary/20 text-primary hover:bg-primary/5"
+                            onClick={() => setIsScannerOpen(true)}
+                            aria-label={t('pos.scanBarcode')}
+                        >
+                            <QrCode className="h-6 w-6" />
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-11 w-11 shrink-0 border-orange-500/30 text-orange-600 dark:text-orange-400 bg-orange-500/5 hover:bg-orange-500/10"
+                            onClick={() => setIsVisionScannerOpen(true)}
+                            title="AI Visual Product Scanner"
+                            aria-label="AI Visual Product Scanner"
+                        >
+                            <Sparkles className="h-5 w-5" />
+                        </Button>
+                        <DropdownMenu modal={false}>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="sm" className="h-11 gap-1.5 min-w-[44px]">
+                                    <ListFilter className="h-4 w-4" />
+                                    <span className="sr-only sm:not-sr-only">{t('inventory.filter')}</span>
+                                    {categoryFilter !== 'all' && <Badge variant="secondary" className="rounded-full h-5 w-5 p-0 flex items-center justify-center ms-1">1</Badge>}
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuLabel>{t('pos.filterByCategory')}</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuRadioGroup value={categoryFilter} onValueChange={setCategoryFilter}>
+                                    <DropdownMenuRadioItem value="all">{t('inventory.allCategories')}</DropdownMenuRadioItem>
+                                    {business?.settings?.productCategories?.map(cat => (
+                                        <DropdownMenuRadioItem key={cat} value={cat}>{cat}</DropdownMenuRadioItem>
+                                    ))}
+                                </DropdownMenuRadioGroup>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                        <DropdownMenu modal={false}>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="outline" className="w-[160px] h-11 hidden lg:flex justify-between font-normal bg-background">
+                                    <span className="flex items-center">
+                                        <Columns className="h-4 w-4 me-2" />
+                                        {columns === 'auto' ? 'Auto (Responsive)' : t('pos.columnsCount', { n: parseInt(columns) })}
+                                    </span>
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent className="w-[160px]">
+                                <DropdownMenuItem onClick={() => setColumns('auto')}>
+                                    <span className={columns === 'auto' ? 'font-semibold text-primary' : ''}>Auto (Responsive)</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => setColumns('3')}>{t('pos.columnsCount', { n: 3 })}</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setColumns('4')}>{t('pos.columnsCount', { n: 4 })}</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setColumns('5')}>{t('pos.columnsCount', { n: 5 })}</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setColumns('6')}>{t('pos.columnsCount', { n: 6 })}</DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
+                    {isSyncing && (
+                        <div className="flex items-center gap-2 ms-1">
+                            <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-widest leading-none">{t('pos.globalCatalogSyncing')}</span>
+                        </div>
+                    )}
+                </div>
+                <div className="pb-24 md:pb-0">
+                    {isLoading || products === null ? (
+                        // Skeleton tiles rather than a spinner: on a first login the
+                        // catalogue streams in from Firestore, and an empty grid used
+                        // to read as "you have no products". Tiles in the grid's own
+                        // shape say "these are loading" without claiming a count.
+                        <div className={gridClassName}>
+                            {Array.from({ length: 8 }).map((_, i) => (
+                                <ProductCardSkeleton key={i} />
+                            ))}
+                        </div>
+                    ) : (
+                        <>
+                            {filteredProducts && filteredProducts.length > 0 ? (
+                                <div className="space-y-4">
+                                    <div className={filteredProducts.length === 1 ? "flex w-full" : gridClassName}>
+                                        {filteredProducts.map(product => (
+                                            <div key={product.id} className={filteredProducts.length === 1 ? "w-[200px] sm:w-[250px]" : "w-full"}>
+                                                <ProductItem
+                                                    product={product}
+                                                    currencySymbol={currencySymbol}
+                                                    handleAddToCart={() => handleAddToCart(product)}
+                                                    addToCart={addToCart}
+                                                    onPreview={(src, alt) => setPreviewImage({ src, alt })}
+                                                    variants={productVariants.get(product.id) || []}
+                                                    isFashion={isFashion}
+                                                    industryConfig={industryConfig}
+                                                    isReadOnly={isReadOnly}
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : isCatalogUnavailable ? (
+                                /*
+                                 * A load that failed is not a shop with no stock.
+                                 *
+                                 * This branch used to fall through to "No products found /
+                                 * This category is currently empty", which told a cashier
+                                 * standing at a till that their employer's catalogue was
+                                 * empty and offered them an Add Product button they may not
+                                 * even have permission to use. Name the actual reason and
+                                 * give them the one action that helps.
+                                 *
+                                 * The drawing itself lives in `<CatalogUnavailable />`,
+                                 * shared with the Inventory page. It was duplicated here,
+                                 * and the copy in both copies told owners they lacked a
+                                 * permission that does not exist — see
+                                 * `src/lib/product-catalog-state.ts`.
+                                 */
+                                <CatalogUnavailable
+                                    kind={productSyncError}
+                                    onRetry={retryProductSync}
+                                    messageClassName="max-w-[320px]"
+                                />
+                            ) : (
+                                <div className="flex flex-col items-center justify-center p-12 text-center border-2 border-dashed rounded-lg min-h-[400px]">
+                                    <Package className="h-16 w-16 text-muted-foreground opacity-30 mb-4" />
+                                    <h3 className="text-xl font-semibold">
+                                        {isFiltered ? t('pos.noProductsFound') : t('inventory.noProducts')}
+                                    </h3>
+                                    <p className="text-muted-foreground mt-2 mb-6 max-w-[280px] mx-auto">
+                                        {/* `categoryEmpty` only applies when a category is actually
+                                            selected. It used to be the fallback for *every* empty
+                                            grid, so a shop with no products at all was told one of
+                                            its categories was empty. */}
+                                        {searchTerm
+                                            ? t('pos.noProductsSearchHint', { term: searchTerm })
+                                            : categoryFilter !== 'all'
+                                                ? t('pos.categoryEmpty')
+                                                : canManageStock
+                                                    ? t('inventory.noProductsHint')
+                                                    : t('pos.noProductsStaffHint')}
+                                    </p>
+                                    {searchTerm ? (
+                                        <Button variant="outline" size="sm" onClick={() => { setSearchTerm(''); }}>
+                                            {t('pos.clearSearch')}
+                                        </Button>
+                                    ) : categoryFilter !== 'all' ? (
+                                        <Button variant="outline" size="sm" onClick={() => setCategoryFilter('all')}>
+                                            {t('inventory.allCategories')}
+                                        </Button>
+                                    ) : canManageStock ? (
+                                        <Button size="sm" asChild>
+                                            <Link href="/inventory/add">
+                                                <PlusCircle className="h-4 w-4 me-2" /> {t('inventory.addProduct')}
+                                            </Link>
+                                        </Button>
+                                    ) : null}
+                                </div>
+                            )}
+
+                            {/* Pagination removed as per user request for full catalog search */}
+                        </>
+                    )}
+                </div>
+            </div>
+
+
+            {/* Draggable Divider (Desktop only) */}
+            <div 
+                className={cn(
+                    "hidden md:flex w-2 -mx-1 cursor-col-resize items-center justify-center transition-colors rounded-full z-20 group hover:bg-primary/10",
+                    isDragging && "bg-primary/20"
+                )}
+                onMouseDown={() => setIsDragging(true)}
+            >
+                <div className={cn(
+                    "w-[2px] h-12 rounded-full transition-colors",
+                    isDragging ? "bg-primary/50" : "bg-border group-hover:bg-primary/30"
+                )} />
+            </div>
+
+            {/* Desktop Cart */}
+            <div 
+                className={cn("hidden md:block shrink-0 transition-[width] duration-75 ease-out", isDragging && "transition-none")} 
+                style={{ width: `${cartWidth}px` }}
+            >
+                <Card className="sticky top-6">
+                    <CardHeader className="flex flex-row items-center justify-between pb-4">
+                        <CardTitle className="flex items-center gap-2">
+                            <ShoppingCart className="h-5 w-5" />
+                            <span>{t('pos.cart')}</span>
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <ScrollArea className="h-96 pe-3">
+                            <CartContents />
+                        </ScrollArea>
+                    </CardContent>
+                    <CardFooter>
+                        <Button className="w-full" onClick={handleNext} disabled={cart.length === 0 || isNavigating || isReadOnly}>
+                            {isNavigating && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
+                            {t('pos.nextCustomer')}
+                        </Button>
+                    </CardFooter>
+                </Card>
+            </div>
+
+            {/* Mobile Cart Sheet */}
+            <div className="md:hidden">
+                <Sheet>
+                    <SheetTrigger asChild>
+                        <Button variant="default" className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom)+6px)] start-4 end-4 z-20 h-16 shadow-lg rounded-xl text-lg">
+                            <div className="flex justify-between items-center w-full">
+                                <div className="flex items-center gap-2">
+                                    <ChevronsUp className="h-5 w-5" />
+                                    <span>{t('pos.viewCart', { n: cart.reduce((acc, item) => acc + item.quantity, 0) })}</span>
+                                </div>
+                                <span>{currencySymbol}{subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
+                        </Button>
+                    </SheetTrigger>
+                    <SheetContent side="bottom" className="h-[75%] flex flex-col">
+                        <SheetHeader className="p-4 border-b text-start">
+                            <SheetTitle>{t('pos.yourCart')}</SheetTitle>
+                        </SheetHeader>
+                        <ScrollArea className="flex-1 p-4">
+                            <CartContents />
+                        </ScrollArea>
+                        <SheetFooter className="mt-4">
+                            <Button className="w-full" onClick={handleNext} disabled={cart.length === 0 || isNavigating || isReadOnly}>
+                                {isNavigating && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
+                                {t('pos.nextCustomer')}
+                            </Button>
+                        </SheetFooter>
+                    </SheetContent>
+                </Sheet>
+            </div>
+
+            <Dialog open={!!variantParent} onOpenChange={(open) => !open && setVariantParent(null)}>
+                <DialogContent className="sm:max-w-md p-0 overflow-hidden">
+                    <DialogHeader className="p-4 pb-3 border-b bg-muted/20">
+                        <div className="flex items-center gap-3">
+                            <div className="h-14 w-14 rounded-xl bg-muted border overflow-hidden relative shrink-0 flex items-center justify-center shadow-xs">
+                                {variantParent?.imageUrl ? (
+                                    <CachedImage
+                                        src={variantParent.imageUrl}
+                                        alt={variantParent.name}
+                                        className="w-full h-full object-contain"
+                                    />
+                                ) : (
+                                    <span className="text-muted-foreground/60">
+                                        {renderCategoryIcon(industryConfig?.fastSwitcherIcon, 28)}
+                                    </span>
+                                )}
+                            </div>
+                            <div className="min-w-0 flex-1 pr-6">
+                                <div className="flex items-center gap-2">
+                                    <DialogTitle className="text-base font-bold truncate">
+                                        {variantParent?.name}
+                                    </DialogTitle>
+                                    <Badge variant="secondary" className="text-[10px] font-bold h-4 shrink-0 bg-primary/10 text-primary border border-primary/20">
+                                        {industryConfig?.fastSwitcherBadge || '⚡ Fast Switcher'}
+                                    </Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                    Base: <span className="font-semibold text-foreground">{currencySymbol}{variantParent?.price?.toLocaleString()}</span> • Tap any {industryConfig?.fastSwitcherIcon === 'shirt' ? 'size' : industryConfig?.fastSwitcherIcon === 'smartphone' ? 'spec' : industryConfig?.fastSwitcherIcon === 'pill' ? 'dosage' : 'option'} to add to cart
+                                </p>
+                            </div>
+                        </div>
+                    </DialogHeader>
+
+                    <div className="p-4 max-h-[60vh] overflow-y-auto">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                            {products?.filter(p => p.parentId === variantParent?.id).map(variant => {
+                                const inStock = (variant.stock ?? 0) > 0;
+                                return (
+                                    <button
+                                        key={variant.id}
+                                        type="button"
+                                        disabled={!inStock || isReadOnly}
+                                        onClick={() => {
+                                            if (isReadOnly) {
+                                                toast({
+                                                    title: t('pos.readOnlyTitle', 'Read-Only Mode'),
+                                                    description: t('pos.readOnlyDesc', 'Your trial or subscription has expired. Please upgrade to record sales.'),
+                                                    variant: 'destructive',
+                                                });
+                                                return;
+                                            }
+                                            addToCart(variant);
+                                            setVariantParent(null);
+                                            toast({ 
+                                                title: t('pos.addedToCart'), 
+                                                description: `${variant.name} (${variant.variantValue || 'Selected size'})` 
+                                            });
+                                        }}
+                                        className={cn(
+                                            "flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all text-center relative group select-none",
+                                            !inStock || isReadOnly
+                                                ? "border-border/30 bg-muted/20 opacity-50 cursor-not-allowed"
+                                                : "border-border/80 hover:border-primary hover:bg-primary/5 active:scale-95 cursor-pointer bg-card shadow-2xs"
+                                        )}
+                                    >
+                                        <span className="text-base font-bold text-foreground group-hover:text-primary tracking-tight">
+                                            {variant.variantValue || variant.name.replace(`${variantParent?.name} - `, '')}
+                                        </span>
+                                        <span className="text-xs font-semibold text-muted-foreground mt-0.5">
+                                            {currencySymbol}{variant.price.toLocaleString()}
+                                        </span>
+                                        <div className="mt-1.5 flex items-center gap-1.5">
+                                            <span className={cn(
+                                                "h-1.5 w-1.5 rounded-full",
+                                                inStock ? (variant.stock > 5 ? "bg-emerald-500" : "bg-amber-500") : "bg-rose-500"
+                                            )} />
+                                            <span className="text-[10px] text-muted-foreground font-medium">
+                                                {inStock ? `${variant.stock} in stock` : 'Sold out'}
+                                            </span>
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {isScannerOpen && (
+                <BarcodeScanner
+                    isOpen={isScannerOpen}
+                    onClose={() => setIsScannerOpen(false)}
+                    onScan={handleScan}
+                />
+            )}
+            {isVisionScannerOpen && (
+                <VisualProductScanner
+                    isOpen={isVisionScannerOpen}
+                    onClose={() => setIsVisionScannerOpen(false)}
+                    products={products || []}
+                    onProductSelect={handleVisionProductSelect}
+                    currencySymbol={business?.settings?.currency || '₦'}
+                />
+            )}
+            <ImageDialog
+                isOpen={!!previewImage}
+                onClose={() => setPreviewImage(null)}
+                src={previewImage?.src || null}
+                alt={previewImage?.alt || ''}
+            />
+        </div>
+
+    )
+}

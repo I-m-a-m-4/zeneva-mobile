@@ -1,0 +1,48 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "skipLibCheck": true
+  },
+  "include": [
+    "App.tsx",
+    "src/navigation/**/*",
+    "src/screens/**/*",
+    "src/context/**/*",
+    "src/types.ts",
+    "src/lib/constants.ts",
+    "src/lib/forensics.ts",
+    "src/lib/business-rating.ts",
+    "src/lib/achievements.ts",
+    "src/lib/secure-storage.ts",
+    "src/lib/sqlite-sync.ts",
+    "src/lib/platform.ts",
+    "src/lib/utils.ts",
+    "src/lib/i18n/**/*",
+    "src/firebase/instance.ts",
+    "src/firebase/config.ts",
+    "src/firebase/users.ts",
+    "src/firebase/retry.ts",
+    "src/firebase/errors.ts",
+    "src/firebase/error-emitter.ts",
+    "src/firebase/provider.tsx",
+    "src/components/FirebaseErrorListener.tsx",
+    "src/hooks/use-toast.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "src/app",
+    "src/actions",
+    "src/context/pwa-context.tsx",
+    "src/context/store-context.tsx",
+    "src/firebase/admin.ts",
+    "src/lib/native-notifications.ts",
+    "scripts"
+  ]
+}

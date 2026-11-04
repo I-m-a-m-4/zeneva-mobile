@@ -1,0 +1,2524 @@
+'use client';
+
+import * as React from 'react';
+import { createPortal } from 'react-dom';
+import { useSearchParams, useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+import { Suspense } from 'react';
+import {
+    ChevronLeft,
+    ChevronDown,
+    Upload,
+    Loader2,
+    Barcode as BarcodeIcon,
+    Plus,
+    Trash,
+    Trash2,
+    Layers,
+    QrCode,
+    AlertCircle,
+    Info,
+    CalendarIcon,
+    ArrowUpRight,
+    ArrowDownLeft,
+    Search,
+    Camera,
+    Archive,
+    ArchiveRestore
+} from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from "@/components/ui/dialog";
+import { useFieldArray } from "react-hook-form";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
+import { collection, query, where, orderBy, limit, onSnapshot, doc, getDoc, deleteDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import type { Product, UserProfile, AuditLog, InventoryTransaction } from '@/types';
+import { useToast } from '@/hooks/use-toast';
+import { useUser, useFirestore, useDoc, useMemoFirebase } from '@/firebase';
+import { usePOS } from '@/context/pos-context';
+import { useI18n } from '@/context/i18n-context';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { format, subMonths, subDays, startOfMonth, parseISO } from 'date-fns';
+import { LineChart, Line, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
+import { isCoreFeatureBlocked } from '@/lib/plan';
+import { apiBase } from '@/lib/platform';
+import { UpgradeOverlay } from '@/components/shared/upgrade-overlay';
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from "@/components/ui/table";
+import { formatDistanceToNow } from 'date-fns';
+import { History as HistoryIcon } from 'lucide-react';
+import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { UnsplashImagePicker } from '@/components/inventory/unsplash-image-picker';
+import ProductVisualStockTakeDialog from '@/components/inventory/product-visual-stock-take-dialog';
+import { Textarea } from "@/components/ui/textarea";
+import Link from "next/link";
+import Image from "next/image";
+import { Button } from "@/components/ui/button";
+import BarcodeDisplay from 'react-barcode';
+import { EditProductBodySkeleton } from './skeleton';
+import { logAuditEvent } from '@/lib/audit';
+import { BarcodeScanner } from '@/components/inventory/barcode-scanner';
+import { cn } from '@/lib/utils';
+import { Combobox } from '@/components/ui/combobox';
+import { getIndustryConfig } from '@/lib/industry';
+import { ProductStockHistoryChart } from '@/components/inventory/product-stock-history-chart';
+import { TransactionDetailsModal } from '@/components/inventory/transaction-details-modal';
+
+const makeProductSchema = (t: (key: string) => string) => z.object({
+    name: z.string().min(3, t('inventory.valNameMin')),
+    description: z.string().optional(),
+    price: z.coerce.number().min(0, t('inventory.valPricePositive')),
+    costPrice: z.coerce.number().min(0, t('inventory.valCostPositive')).optional(),
+    stock: z.coerce.number().int(t('inventory.valStockWhole')),
+    sku: z.string().optional(),
+    expiryDate: z.date().optional(),
+    category: z.string().optional(),
+    categoryType: z.enum(['product', 'service']).default('product'),
+    lowStockThreshold: z.coerce.number().min(0).optional(),
+
+    // Advanced Features & Electronics Tracking
+    type: z.enum(['single', 'variant', 'composite']).default('single'),
+    baseUnit: z.string().optional(),
+    isSerializable: z.boolean().optional(),
+    serialNumbersInput: z.string().optional(),
+    uomConversions: z.array(z.object({
+        unitName: z.string().min(1, t('inventory.valUnitNameRequired')),
+        multiplier: z.coerce.number().min(1, t('inventory.valMultiplierMin')),
+        price: z.coerce.number().optional()
+    })).optional(),
+    components: z.array(z.object({
+        productId: z.string().min(1, t('inventory.valProductRequired')),
+        quantity: z.coerce.number().min(1, t('inventory.valQuantityRequired'))
+    })).optional(),
+});
+
+type ProductFormValues = z.infer<ReturnType<typeof makeProductSchema>>;
+
+function useCurrentUserProfile() {
+    const { user } = useUser();
+    const firestore = useFirestore();
+    const userDocRef = useMemoFirebase(() => {
+        if (!user || !firestore) return null;
+        return doc(firestore, 'users', user.uid);
+    }, [user, firestore]);
+    const { data: userProfile, isLoading } = useDoc<UserProfile>(userDocRef);
+
+    return { profile: userProfile, isLoading };
+}
+
+function EditProductSkeleton() {
+    return <EditProductBodySkeleton />;
+}
+
+function EditProductContent() {
+    const router = useRouter();
+    const searchParams = useSearchParams();
+    const productId = searchParams.get('id');
+
+    const { toast } = useToast();
+    const { currentUserProfile, business, queuedActions, addToQueue, products, users, receipts, auditLogs, currencySymbol } = usePOS();
+    const isReadOnly = business ? isCoreFeatureBlocked(business) : false;
+    const { t } = useI18n();
+    const firestore = useFirestore();
+
+    const productSchema = React.useMemo(() => makeProductSchema(t), [t]);
+    const [showUpgradeOverlay, setShowUpgradeOverlay] = React.useState(false);
+
+    const productDocRef = useMemoFirebase(() => (firestore && productId ? doc(firestore, 'products', productId) : null), [firestore, productId]);
+    const { data: remoteProduct, isLoading: isRemoteProductLoading } = useDoc<Product>(productDocRef);
+
+    const localProduct = React.useMemo(() => {
+        return products?.find(p => p.id === productId) || null;
+    }, [products, productId]);
+
+    const product = remoteProduct || localProduct;
+    const isProductLoading = isRemoteProductLoading && !localProduct;
+
+    const [isSaving, setIsSaving] = React.useState(false);
+    const isSubmitting = React.useRef(false);
+    const [isMounted, setIsMounted] = React.useState(false);
+    
+    React.useEffect(() => {
+        setIsMounted(true);
+    }, []);
+    const [imageFile, setImageFile] = React.useState<File | null>(null);
+    const [imagePreview, setImagePreview] = React.useState<string | null>(null);
+    const [isScannerOpen, setIsScannerOpen] = React.useState(false);
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = React.useState(false);
+    const [stockLogs, setStockLogs] = React.useState<AuditLog[]>([]);
+    const [isLogsLoading, setIsLogsLoading] = React.useState(true);
+    const [quantityToAddInput, setQuantityToAddInput] = React.useState<string>('');
+    const [isVisualStockDialogOpen, setIsVisualStockDialogOpen] = React.useState(false);
+    
+    // Transaction detail modal state
+    const [selectedTx, setSelectedTx] = React.useState<any | null>(null);
+    const [isTxModalOpen, setIsTxModalOpen] = React.useState(false);
+
+    // Dynamic resolution cache for UIDs that aren't in POS cache
+    const [resolvedUserNames, setResolvedUserNames] = React.useState<Record<string, string>>({});
+
+    // User resolution map for clean cashier/staff display
+    const userMap = React.useMemo(() => {
+        const map = new Map<string, string>();
+        if (users && Array.isArray(users)) {
+            users.forEach((u: any) => {
+                const name = u.name || u.displayName || (u.email ? u.email.split('@')[0] : '');
+                if (u.id && name) map.set(u.id, name);
+                if (u.uid && name) map.set(u.uid, name);
+            });
+        }
+        if (receipts && Array.isArray(receipts)) {
+            receipts.forEach((r: any) => {
+                if (r.createdBy && r.cashierName) {
+                    map.set(r.createdBy, r.cashierName);
+                }
+                if (r.createdById && r.cashierName) {
+                    map.set(r.createdById, r.cashierName);
+                }
+                if (r.userId && r.cashierName) {
+                    map.set(r.userId, r.cashierName);
+                }
+            });
+        }
+        // Map from global audit logs in memory (includes actorName and actorId for every employee event)
+        if (auditLogs && Array.isArray(auditLogs)) {
+            auditLogs.forEach((a: any) => {
+                const name = a.actorName || a.userName || '';
+                if (a.actorId && name) map.set(a.actorId, name);
+                if (a.userId && name) map.set(a.userId, name);
+                if (a.createdBy && name) map.set(a.createdBy, name);
+            });
+        }
+        // Map from stock logs in memory (e.g. legacy logs that have actorName / cashierName)
+        if (stockLogs && Array.isArray(stockLogs)) {
+            stockLogs.forEach((l: any) => {
+                const name = l.actorName || l.cashierName || l.userName;
+                if (l.actorId && name) map.set(l.actorId, name);
+                if (l.createdById && name) map.set(l.createdById, name);
+                if (l.createdBy && name && !/^[a-zA-Z0-9_-]{20,36}$/.test(name.trim())) {
+                    map.set(l.createdBy, name);
+                }
+            });
+        }
+        if (business?.ownerId) {
+            const ownerName = business.ownerName || business.name || 'Owner';
+            map.set(business.ownerId, ownerName);
+        }
+        if (business?.settings?.staff && Array.isArray(business.settings.staff)) {
+            business.settings.staff.forEach((s: any) => {
+                if (s.id && s.name) map.set(s.id, s.name);
+                if (s.uid && s.name) map.set(s.uid, s.name);
+            });
+        }
+        if (currentUserProfile) {
+            const myId = currentUserProfile.id || (currentUserProfile as any).uid;
+            if (myId && currentUserProfile.name) {
+                map.set(myId, currentUserProfile.name);
+            }
+        }
+        // Merge dynamically resolved names from server
+        Object.entries(resolvedUserNames).forEach(([uid, name]) => {
+            if (uid && name) {
+                map.set(uid, name);
+            }
+        });
+        return map;
+    }, [users, receipts, auditLogs, stockLogs, business?.ownerId, business?.ownerName, business?.name, business?.settings?.staff, currentUserProfile, resolvedUserNames]);
+
+    // Background batch resolver: automatically fetch real names for any unresolved UIDs
+    React.useEffect(() => {
+        if (!business?.id || !stockLogs.length) return;
+        const uidsToResolve: string[] = [];
+
+        stockLogs.forEach((l: any) => {
+            const candidate = l.cashierName || l.userName || l.actorId || l.createdBy;
+            if (candidate && typeof candidate === 'string') {
+                const trimmed = candidate.trim();
+                // Check if it's a raw 20-36 char Firebase UID and not yet resolved
+                if (/^[a-zA-Z0-9_-]{20,36}$/.test(trimmed) && !userMap.has(trimmed) && !resolvedUserNames[trimmed]) {
+                    uidsToResolve.push(trimmed);
+                }
+            }
+        });
+
+        if (uidsToResolve.length === 0) return;
+        const uniqueUids = Array.from(new Set(uidsToResolve));
+
+        fetch(`${apiBase()}/api/users/resolve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ businessId: business.id, uids: uniqueUids }),
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success && data.users) {
+                    setResolvedUserNames(prev => ({ ...prev, ...data.users }));
+                }
+            })
+            .catch(() => {});
+    }, [stockLogs, business?.id, userMap, resolvedUserNames]);
+
+    const resolveUserName = React.useCallback((val: string | undefined): string => {
+        if (!val || val === 'System') return 'System';
+        
+        const trimmed = val.trim();
+        // If it's already a readable human name (has spaces, doesn't match standard 20-36 char Firebase Auth UID)
+        const isLikelyUid = /^[a-zA-Z0-9_-]{20,36}$/.test(trimmed);
+        if (!isLikelyUid) return trimmed;
+
+        if (userMap.has(trimmed)) {
+            return userMap.get(trimmed)!;
+        }
+
+        if (resolvedUserNames[trimmed]) {
+            return resolvedUserNames[trimmed];
+        }
+
+        // If it's current user
+        if (currentUserProfile && ((currentUserProfile as any).uid === trimmed || currentUserProfile.id === trimmed)) {
+            return currentUserProfile.name ? `${currentUserProfile.name}` : 'You';
+        }
+
+        // Search in stockLogs for any reference to this UID having a cashierName or actorName
+        for (const l of stockLogs as any[]) {
+            if ((l.createdBy === trimmed || l.createdById === trimmed || l.actorId === trimmed) && (l.cashierName || l.actorName || l.userName)) {
+                const foundName = l.cashierName || l.actorName || l.userName;
+                if (foundName && !/^[a-zA-Z0-9_-]{20,36}$/.test(foundName.trim())) {
+                    return foundName.trim();
+                }
+            }
+        }
+
+        return 'Staff';
+    }, [userMap, resolvedUserNames, currentUserProfile, stockLogs]);
+
+    // Category Management
+    const [isNewCategoryModalOpen, setIsNewCategoryModalOpen] = React.useState(false);
+    const [newCategoryName, setNewCategoryName] = React.useState("");
+    const [isAddingCategory, setIsAddingCategory] = React.useState(false);
+
+    const handleAddCategory = async () => {
+        if (!newCategoryName.trim() || !business || !firestore) return;
+        setIsAddingCategory(true);
+        try {
+            const updatedCategories = [...(business.settings?.productCategories || []), newCategoryName.trim()];
+            await updateDoc(doc(firestore, 'businessInstances', business.id), {
+                'settings.productCategories': updatedCategories
+            });
+            form.setValue('category', newCategoryName.trim());
+            setNewCategoryName("");
+            toast({ title: t('inventory.categoryCreatedTitle'), description: t('inventory.categoryCreatedBody', { name: newCategoryName.trim() }), variant: 'success' });
+        } catch (err) {
+            toast({ title: t('common.error'), description: t('inventory.categoryCreateFailed'), variant: 'destructive' });
+        } finally {
+            setIsAddingCategory(false);
+        }
+    };
+
+    const handleDeleteCategory = async (catToDelete: string) => {
+        if (!business || !firestore) return;
+        try {
+            const updatedCategories = (business.settings?.productCategories || []).filter(c => c !== catToDelete);
+            await updateDoc(doc(firestore, 'businessInstances', business.id), {
+                'settings.productCategories': updatedCategories
+            });
+            if (form.getValues('category') === catToDelete) {
+                form.setValue('category', '');
+            }
+            toast({ title: t('inventory.categoryDeletedTitle'), description: t('inventory.categoryDeletedBody', { name: catToDelete }), variant: 'success' });
+        } catch (err) {
+            toast({ title: t('common.error'), description: t('inventory.categoryDeleteFailed'), variant: 'destructive' });
+        }
+    };
+
+    // Fetch Inventory Transactions & Legacy Audit Logs
+    React.useEffect(() => {
+        if (!business?.id || !firestore || !product?.id) {
+            if (!isProductLoading) setIsLogsLoading(false);
+            return;
+        }
+
+        const txQuery = query(
+            collection(firestore, 'inventory_transactions'),
+            where('businessId', '==', business.id),
+            where('productId', '==', product.id)
+        );
+        
+        const legacyQuery = query(
+            collection(firestore, 'businessInstances', business.id, 'auditLogs'),
+            where('entityId', '==', product.id),
+            where('action', 'in', ['product.stock_adjustment', 'product.create', 'product.update', 'product.bulk_update', 'product.sale']),
+            orderBy('createdAt', 'desc'),
+            limit(50)
+        );
+
+        let txLogs: any[] = [];
+        let legacyLogs: any[] = [];
+        let hasTxLoaded = false;
+        let hasLegacyLoaded = false;
+        let isDone = false;
+        
+        const updateLogs = () => {
+            if (!hasTxLoaded || !hasLegacyLoaded || isDone) return;
+            isDone = true; // prevent double set if both resolve instantly
+            
+            // Map legacy logs to the new format
+            const mappedLegacy = legacyLogs.filter((log: any) => {
+                if (log.action === 'product.stock_adjustment' || log.action === 'product.create' || log.action === 'product.sale') return true;
+                if (log.action === 'product.update' || log.action === 'product.bulk_update') return true;
+                return false;
+            }).map((log: any) => {
+                const details = log.details || {};
+                let rawAdj = details.adjustment !== undefined 
+                    ? details.adjustment 
+                    : (log.action === 'product.create' ? details.stock : (details.newStock !== undefined && details.oldStock !== undefined ? details.newStock - details.oldStock : 0));
+                
+                let type = 'adjustment';
+                if (log.action === 'product.sale') type = 'out';
+                else if (log.action === 'product.update' || log.action === 'product.bulk_update') {
+                    if (details.changes || (details.adjustment === undefined && details.newStock === undefined && details.stock === undefined)) {
+                        type = 'edit';
+                    } else {
+                        type = rawAdj >= 0 ? 'in' : 'out';
+                    }
+                }
+                else type = rawAdj >= 0 ? 'in' : 'out';
+
+                const rawReceiptMatch = (details.receiptId || details.reason || '')
+                    .toString()
+                    .match(/rec-[a-zA-Z0-9]+/i)?.[0]?.toLowerCase() || null;
+                
+                let editSummary = '';
+                if (type === 'edit' && details.changes) {
+                    const parts: string[] = [];
+                    if (details.changes.name) parts.push(`Name: "${details.changes.name.from}" → "${details.changes.name.to}"`);
+                    if (details.changes.price) parts.push(`Price: ${details.changes.price.from} → ${details.changes.price.to}`);
+                    if (details.changes.costPrice) parts.push(`Cost: ${details.changes.costPrice.from} → ${details.changes.costPrice.to}`);
+                    if (details.changes.sku) parts.push(`SKU: "${details.changes.sku.from}" → "${details.changes.sku.to}"`);
+                    if (details.changes.category) parts.push(`Category: "${details.changes.category.from}" → "${details.changes.category.to}"`);
+                    editSummary = parts.join(' · ');
+                }
+
+                return {
+                    id: log.id,
+                    businessId: business.id,
+                    productId: product.id,
+                    type,
+                    quantity: Math.abs(rawAdj || 0),
+                    closingStock: details.newStock !== undefined ? Number(details.newStock) : undefined,
+                    date: log.createdAt,
+                    notes: editSummary || details.reason || log.action,
+                    changes: details.changes || null,
+                    createdBy: log.actorName || log.userName || log.actorId || log.userId || 'System',
+                    actorName: log.actorName || log.userName || '',
+                    actorId: log.actorId || log.userId || '',
+                    referenceId: rawReceiptMatch || log.id,
+                    receiptRef: rawReceiptMatch,
+                    _isLegacy: true,
+                    _isAuditSale: log.action === 'product.sale' || (details.reason && String(details.reason).toLowerCase().includes('sold in sale'))
+                };
+            }).filter((l: any) => l.quantity > 0 || l.type === 'adjustment' || l.type === 'edit'); // keep 0 adjustments just in case
+            
+            const toSec = (d: any): number => {
+                if (!d) return 0;
+                if (typeof d.seconds === 'number') return d.seconds;
+                if (typeof d.toMillis === 'function') return d.toMillis() / 1000;
+                if (typeof d.toDate === 'function') return d.toDate().getTime() / 1000;
+                if (typeof d.getTime === 'function') return d.getTime() / 1000;
+                if (typeof d === 'string' || typeof d === 'number') {
+                    const parsed = new Date(d).getTime();
+                    return isNaN(parsed) ? 0 : parsed / 1000;
+                }
+                return 0;
+            };
+
+            const txReceiptIds = new Set<string>();
+            txLogs.forEach((t: any) => {
+                if (t.referenceId) txReceiptIds.add(String(t.referenceId).toLowerCase());
+                const match = t.notes?.match(/rec-[a-zA-Z0-9]+/i);
+                if (match) txReceiptIds.add(match[0].toLowerCase());
+            });
+
+            const filteredLegacy = mappedLegacy.filter((l: any) => {
+                // 1. If this legacy log is a sale (action === 'product.sale' or 'Sold in Sale'):
+                // Since complete-sale always logs directly to inventory_transactions, any sale audit log
+                // that matches an existing inventory transaction MUST be discarded to prevent duplicate display and balance decay.
+                if (l._isAuditSale) {
+                    if (l.receiptRef && txReceiptIds.has(l.receiptRef)) return false;
+                    const legacySec = toSec(l.date);
+                    const matchingTx = txLogs.some((tx: any) => {
+                        if (tx.productId && tx.productId !== l.productId) return false;
+                        if (l.receiptRef && (String(tx.referenceId).toLowerCase() === l.receiptRef || tx.notes?.toLowerCase().includes(l.receiptRef))) {
+                            return true;
+                        }
+                        if (tx.type === 'out' && Math.abs(tx.quantity) === l.quantity) {
+                            const txSec = toSec(tx.date);
+                            if (legacySec > 0 && txSec > 0 && Math.abs(txSec - legacySec) < 86400) {
+                                return true;
+                            }
+                        }
+                        return false;
+                    });
+                    if (matchingTx) return false;
+                }
+
+                // 2. Exact referenceId or receipt match
+                if (l.receiptRef && txReceiptIds.has(l.receiptRef)) return false;
+                if (txReceiptIds.has(String(l.id).toLowerCase())) return false;
+
+                // 3. Manual restocks or edits that were queued to both inventory_transactions and audit_logs:
+                const legacySec = toSec(l.date);
+                const isDuplicate = txLogs.some((tx: any) => {
+                    if (tx.productId && tx.productId !== l.productId) return false;
+                    if (Math.abs(tx.quantity) !== l.quantity) return false;
+                    const txSec = toSec(tx.date);
+                    return legacySec > 0 && txSec > 0 && Math.abs(txSec - legacySec) < 1800;
+                });
+                if (isDuplicate) return false;
+
+                return true;
+            });
+            
+            setStockLogs([...txLogs, ...filteredLegacy] as any);
+            setIsLogsLoading(false);
+        };
+
+        const unsubTx = onSnapshot(txQuery, (snap) => {
+            txLogs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            hasTxLoaded = true;
+            isDone = false; // allow re-trigger on new tx
+            updateLogs();
+        }, (err) => {
+            console.error('Failed to listen to transactions:', err);
+            hasTxLoaded = true;
+            updateLogs();
+        });
+        
+        const unsubLegacy = onSnapshot(legacyQuery, (snap) => {
+            legacyLogs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            hasLegacyLoaded = true;
+            isDone = false;
+            updateLogs();
+        }, (err) => {
+            console.error('Failed to listen to legacy logs:', err);
+            hasLegacyLoaded = true;
+            updateLogs();
+        });
+
+        const timeoutId = setTimeout(() => {
+            setIsLogsLoading(false);
+            hasTxLoaded = true;
+            hasLegacyLoaded = true;
+            updateLogs();
+        }, 4000);
+
+        return () => {
+            unsubTx();
+            unsubLegacy();
+            clearTimeout(timeoutId);
+        };
+    }, [business?.id, firestore, product?.id, isProductLoading]);
+    
+    const pendingTxLogs = React.useMemo(() => {
+        if (!queuedActions || !product?.id) return [];
+        return queuedActions
+            .filter(a => {
+                const actionType = (a as any).action?.type || (a as any).type;
+                const actionPayload = (a as any).action?.payload || (a as any).payload;
+                if (actionType === 'add-inventory-transaction') {
+                    return actionPayload?.productId === product.id;
+                }
+                if (actionType === 'update-product') {
+                    return actionPayload?.productId === product.id && actionPayload?.values?.stock !== undefined;
+                }
+                return false;
+            })
+            .map(a => {
+                const actionType = (a as any).action?.type || (a as any).type;
+                const actionPayload = (a as any).action?.payload || (a as any).payload;
+                if (actionType === 'add-inventory-transaction') {
+                    const p = actionPayload || {};
+                    return {
+                        id: `pending-${a.id}`,
+                        businessId: p.businessId || business?.id,
+                        productId: p.productId,
+                        type: p.type || 'in',
+                        quantity: Number(p.quantity) || 0,
+                        date: new Date((a as any).timestamp || (a as any).createdAt || Date.now()),
+                        notes: p.notes || 'Pending Restock Movement',
+                        createdBy: p.createdBy || currentUserProfile?.name || 'Local User',
+                        _isPending: true,
+                    };
+                }
+                const p = actionPayload || {};
+                const stockVal = p.values ? p.values.stock : 0;
+                return {
+                    id: `pending-${a.id}`,
+                    businessId: business?.id,
+                    productId: p.productId,
+                    type: 'adjustment',
+                    quantity: Number(stockVal) || 0,
+                    closingStock: Number(stockVal) || 0,
+                    date: new Date((a as any).timestamp || (a as any).createdAt || Date.now()),
+                    notes: a.description || 'Pending Product Update',
+                    createdBy: currentUserProfile?.name || 'Local User',
+                    _isPending: true,
+                };
+            });
+    }, [queuedActions, product?.id, business?.id, currentUserProfile?.name]);
+
+    const combinedLogs = React.useMemo(() => {
+        const all = [...pendingTxLogs, ...stockLogs];
+        const sorted = all.sort((a, b) => {
+            const getMs = (d: any): number => {
+                if (!d) return 0;
+                if (typeof d.toMillis === 'function') return d.toMillis();
+                if (typeof d.toDate === 'function') return d.toDate().getTime();
+                if (typeof d.getTime === 'function') return d.getTime();
+                if (typeof d.seconds === 'number') return d.seconds * 1000;
+                const parsed = new Date(d).getTime();
+                return isNaN(parsed) ? 0 : parsed;
+            };
+            return getMs(b.date) - getMs(a.date);
+        });
+
+        // Compute running balance backwards
+        let currentBalance = product?.stock || 0;
+        
+        const mapped = sorted.map((tx: any) => {
+            let balanceAfter = currentBalance;
+            let anomalies: string[] = [];
+
+            if (tx.closingStock !== undefined) {
+                if (currentBalance !== tx.closingStock && tx.id !== sorted[0]?.id) {
+                    anomalies.push('Balance discrepancy detected against logged closing stock.');
+                }
+                balanceAfter = tx.closingStock;
+                currentBalance = tx.closingStock; // Sync up if it was explicitly logged
+            }
+
+            if (balanceAfter < 0) {
+                anomalies.push('Stock was oversold (balance dropped below zero).');
+            }
+
+            if ((tx.type === 'in' || tx.type === 'out') && !tx.referenceId && !tx.notes?.includes('Initial') && !tx.notes?.includes('Manual adjustment') && !tx.notes?.includes('Quick restock')) {
+                anomalies.push('Missing transaction reference ID.');
+            }
+
+            // Calculate what the stock was before this transaction to pass to the next older one
+            let changeAmount = 0;
+            if (tx.type === 'in' || tx.type === 'return') changeAmount = tx.quantity;
+            else if (tx.type === 'out') changeAmount = -Math.abs(tx.quantity);
+            else if (tx.type === 'adjustment') changeAmount = tx.quantity; // Adjustments already carry their sign or represent total change
+            
+            currentBalance -= changeAmount;
+
+            return {
+                ...tx,
+                computedBalance: balanceAfter,
+                anomalies
+            };
+        });
+
+        return mapped.slice(0, 100);
+    }, [stockLogs, product?.stock]);
+
+    const [logFilter, setLogFilter] = React.useState('all');
+    const [logSearchTerm, setLogSearchTerm] = React.useState('');
+    const [salesPeriod, setSalesPeriod] = React.useState<'30d' | '90d' | '6m' | '1y' | 'all'>('6m');
+    const [chartMetric, setChartMetric] = React.useState<'both' | 'revenue' | 'profit' | 'units'>('both');
+
+
+    const filteredLogs = React.useMemo(() => {
+        let result = combinedLogs;
+        
+        if (logFilter !== 'all') {
+            result = result.filter((log: any) => {
+                if (logFilter === 'in') return log.type === 'in';
+                if (logFilter === 'out') return log.type === 'out';
+                if (logFilter === 'return') return log.type === 'return';
+                if (logFilter === 'adjustment') return log.type === 'adjustment';
+                if (logFilter === 'edit') return log.type === 'edit';
+                return true;
+            });
+        }
+        
+        if (logSearchTerm.trim()) {
+            const lower = logSearchTerm.toLowerCase();
+            result = result.filter((log: any) => 
+                (log.notes && log.notes.toLowerCase().includes(lower)) ||
+                (log.userEmail && log.userEmail.toLowerCase().includes(lower))
+            );
+        }
+
+        return result;
+    }, [combinedLogs, logFilter, logSearchTerm]);
+
+    // Index receipts by id for lookup of exact historical selling price and cost
+    const receiptMap = React.useMemo(() => {
+        const map = new Map<string, any>();
+        (receipts || []).forEach(r => {
+            if (r?.id) map.set(String(r.id).toLowerCase(), r);
+            if (r?.receiptNumber) map.set(String(r.receiptNumber).toLowerCase(), r);
+        });
+        return map;
+    }, [receipts]);
+
+    const salesData = React.useMemo(() => {
+        const salesLogs = combinedLogs.filter((log: any) => log.type === 'out');
+        const dataMap: Record<string, { sold: number; revenue: number; profit: number }> = {};
+
+        const initBucket = (key: string) => {
+            dataMap[key] = { sold: 0, revenue: 0, profit: 0 };
+        };
+
+        if (salesPeriod === '30d') {
+            for (let i = 29; i >= 0; i--) {
+                const d = subDays(new Date(), i);
+                initBucket(format(d, 'dd MMM'));
+            }
+        } else if (salesPeriod === '90d') {
+            for (let i = 11; i >= 0; i--) {
+                const d = subDays(new Date(), i * 7);
+                initBucket(format(d, 'dd MMM'));
+            }
+        } else {
+            const numMonths = salesPeriod === '6m' ? 5 : salesPeriod === '1y' ? 11 : 23;
+            for (let i = numMonths; i >= 0; i--) {
+                const d = subMonths(new Date(), i);
+                initBucket(format(d, 'MMM yy'));
+            }
+        }
+
+        salesLogs.forEach((log: any) => {
+            const dateVal = log.date || log.createdAt;
+            if (!dateVal) return;
+            const d = dateVal.toDate ? dateVal.toDate() : new Date(dateVal);
+            const key = (salesPeriod === '30d' || salesPeriod === '90d') ? format(d, 'dd MMM') : format(d, 'MMM yy');
+            
+            if (dataMap[key] !== undefined) {
+                const soldQty = log.quantity ? Math.abs(log.quantity) : 0;
+                
+                // Determine selling price and cost price
+                let itemPrice = Number(product?.price) || 0;
+                let itemCost = Number(product?.costPrice) || 0;
+
+                const ref = log.referenceId || log.receiptRef;
+                if (ref) {
+                    const r = receiptMap.get(String(ref).toLowerCase());
+                    if (r && Array.isArray(r.items)) {
+                        const matchedItem = r.items.find((it: any) => it.productId === product?.id);
+                        if (matchedItem) {
+                            if (matchedItem.price !== undefined) itemPrice = Number(matchedItem.price) || 0;
+                            if (matchedItem.costPrice !== undefined) itemCost = Number(matchedItem.costPrice) || 0;
+                        }
+                    }
+                }
+
+                const rev = soldQty * itemPrice;
+                const cost = soldQty * itemCost;
+                const profit = rev - cost;
+
+                dataMap[key].sold += soldQty;
+                dataMap[key].revenue += rev;
+                dataMap[key].profit += profit;
+            }
+        });
+
+        return Object.keys(dataMap).map(key => ({
+            name: key,
+            sold: dataMap[key].sold,
+            revenue: Math.round(dataMap[key].revenue),
+            profit: Math.round(dataMap[key].profit),
+        }));
+    }, [combinedLogs, salesPeriod, product?.id, product?.price, product?.costPrice, receiptMap]);
+
+    // Aggregate totals for the selected period
+    const periodTotals = React.useMemo(() => {
+        let units = 0;
+        let revenue = 0;
+        let profit = 0;
+        salesData.forEach(d => {
+            units += d.sold;
+            revenue += d.revenue;
+            profit += d.profit;
+        });
+        const marginPct = revenue > 0 ? (profit / revenue) * 100 : 0;
+        return { units, revenue, profit, marginPct };
+    }, [salesData]);
+
+
+
+    const form = useForm<ProductFormValues>({
+        resolver: zodResolver(productSchema),
+        defaultValues: {
+            name: "",
+            description: "",
+            price: 0,
+            costPrice: 0,
+            stock: 0,
+            sku: "",
+            category: "",
+            categoryType: "product",
+            type: "single",
+            baseUnit: "Piece",
+            uomConversions: [],
+            components: [],
+        },
+    });
+
+    const { fields: uomFields, append: appendUom, remove: removeUom } = useFieldArray({
+        control: form.control,
+        name: "uomConversions"
+    });
+
+    const { fields: componentFields, append: appendComponent, remove: removeComponent } = useFieldArray({
+        control: form.control,
+        name: "components"
+    });
+
+    const productType = form.watch("type");
+    const categoryType = form.watch("categoryType");
+
+
+    const industryConfig = React.useMemo(() => getIndustryConfig(business?.settings?.industry), [business?.settings?.industry]);
+
+    React.useEffect(() => {
+        if (product) {
+            form.reset({
+                ...product,
+                categoryType: product.categoryType || 'product',
+                type: product.type || 'single',
+                serialNumbersInput: product.serialNumbers ? product.serialNumbers.join('\n') : ''
+            });
+            setQuantityToAddInput('');
+            if (product.imageUrl) {
+                setImagePreview(product.imageUrl);
+            }
+        }
+    }, [product, form]);
+
+    const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+
+    const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (file) {
+            if (file.size > MAX_FILE_SIZE) {
+                toast({
+                    variant: 'destructive',
+                    title: t('inventory.imageTooLargeTitle'),
+                    description: t('inventory.imageTooLargeBody'),
+                });
+                event.target.value = '';
+                return;
+            }
+            setImageFile(file);
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setImagePreview(reader.result as string);
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    const handleWebImageSelect = async (url: string, file: File) => {
+        setImagePreview(url);
+        setImageFile(file);
+
+        if (!product?.id) return;
+
+        try {
+            let finalImageUrl = url;
+
+            // Upload to ImageKit via /api/upload if online and file provided
+            if (file && typeof navigator !== 'undefined' && navigator.onLine) {
+                const formData = new FormData();
+                formData.append('file', file);
+                try {
+                    const response = await fetch(`${apiBase()}/api/upload`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    if (response.ok) {
+                        const result = await response.json();
+                        if (result?.url) {
+                            finalImageUrl = result.url;
+                        }
+                    }
+                } catch (uploadErr) {
+                    console.warn('Direct upload failed, keeping web URL:', uploadErr);
+                }
+            }
+
+            // Immediately persist via addToQueue (Law 1 write choke-point)
+            addToQueue({
+                type: 'update-product',
+                payload: {
+                    productId: product.id,
+                    values: {
+                        imageUrl: finalImageUrl
+                    }
+                }
+            }, `Updated image for ${product.name || 'product'}`);
+
+            setImagePreview(finalImageUrl);
+            setImageFile(null); // Saved to catalog, clear pending file
+
+            toast({
+                title: t('common.success') || 'Image Saved!',
+                description: t('inventory.imageSavedToFirestore') || 'Product image has been saved to your catalog.',
+            });
+        } catch (err: any) {
+            console.error('Failed to auto-save product image:', err);
+            toast({
+                variant: 'destructive',
+                title: t('common.error') || 'Error',
+                description: 'Failed to auto-save image to product.'
+            });
+        }
+    };
+
+    const onSubmit = async (values: ProductFormValues) => {
+        if (isSaving || isSubmitting.current) return;
+        isSubmitting.current = true;
+        setIsSaving(true);
+        if (!product || !currentUserProfile || !business) {
+            isSubmitting.current = false;
+            setIsSaving(false);
+            return;
+        }
+
+        if (isCoreFeatureBlocked(business)) {
+            setShowUpgradeOverlay(true);
+            isSubmitting.current = false;
+            setIsSaving(false);
+            return;
+        }
+
+        let imageUrl = product?.imageUrl || '';
+
+        try {
+            // 1. If we have an image, we try to upload it backgrounding if possible, 
+            // but for simplicity here we'll do it sequentially if online.
+            if (imageFile && navigator.onLine) {
+                const formData = new FormData();
+                formData.append('file', imageFile);
+                try {
+                    const response = await fetch(`${apiBase()}/api/upload`, { method: 'POST', body: formData });
+                    const result = await response.json();
+                    if (response.ok && result.url) {
+                        imageUrl = result.url;
+                    } else {
+                        console.error("Image upload failed:", result.error);
+                    }
+                } catch (error) {
+                    console.error("Failed to upload image:", error);
+                }
+            }
+
+            const rawSerials = values.serialNumbersInput
+                ? values.serialNumbersInput.split(/[\n,]+/).map(s => s.trim()).filter(Boolean)
+                : [];
+            
+            const { serialNumbersInput: _, ...pureValues } = values;
+
+            const updatedValues = {
+                ...pureValues,
+                imageUrl,
+                isSerializable: rawSerials.length > 0 || !!values.isSerializable || !!industryConfig.hasSerialNumbers,
+                serialNumbers: rawSerials,
+            };
+            const cleanData = Object.fromEntries(
+                Object.entries(updatedValues).filter(([_, v]) => v !== undefined)
+            );
+
+            // 2. Queue the update instead of direct write
+            addToQueue({
+                type: 'update-product',
+                payload: {
+                    productId: product.id,
+                    values: cleanData
+                }
+            }, `Updating product: ${values.name}`);
+
+            // 3. Log stock adjustment if changed via queue for offline support
+            if (values.stock !== product.stock) {
+                const adjustment = values.stock - (product.stock || 0);
+                
+                addToQueue({
+                    type: 'add-audit-log',
+                    payload: {
+                        businessId: business.id,
+                        userId: currentUserProfile.id,
+                        userName: currentUserProfile.name,
+                        userEmail: currentUserProfile.email,
+                        userRole: currentUserProfile.role,
+                        action: 'product.stock_adjustment',
+                        entityType: 'Product',
+                        entityId: product.id,
+                        details: { 
+                            entityName: product.name,
+                            oldStock: product.stock, 
+                            newStock: values.stock, 
+                            adjustment,
+                            reason: 'Full Edit Page'
+                        }
+                    }
+                }, `Logging stock adjustment for ${product.name}`);
+
+                const txRefId = `adj_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+                addToQueue({
+                    type: 'add-inventory-transaction',
+                    payload: {
+                        businessId: business.id,
+                        productId: product.id,
+                        productName: product.name,
+                        type: adjustment > 0 ? 'in' : 'out',
+                        quantity: Math.abs(adjustment),
+                        closingStock: values.stock,
+                        notes: `Manual adjustment from ${product.stock} to ${values.stock} (${adjustment > 0 ? '+' : ''}${adjustment})`,
+                        createdBy: currentUserProfile.name,
+                        referenceId: txRefId,
+                        date: new Date()
+                    }
+                }, `Logging inventory transaction for ${product.name}`);
+            }
+
+            // 4. Log price and cost movements as a before/after pair.
+            //
+            // The loss-prevention scan pairs a cut with a later restore to spot
+            // the price-swap (drop the price, sell it cheap, put it back). Both
+            // edits leave the catalogue looking untouched, so this pair of logs
+            // is the only trace it happened. See src/lib/forensics.ts, check S7.
+            const nameMoved = values.name !== product.name;
+            const priceMoved = values.price !== product.price;
+            const costMoved = (values.costPrice ?? 0) !== (product.costPrice ?? 0);
+            const skuMoved = (values.sku ?? '') !== (product.sku ?? '');
+            const categoryMoved = (values.category ?? '') !== (product.category ?? '');
+
+            if (nameMoved || priceMoved || costMoved || skuMoved || categoryMoved) {
+                const changes: Record<string, { from: any; to: any }> = {};
+                if (nameMoved) changes.name = { from: product.name, to: values.name };
+                if (priceMoved) changes.price = { from: product.price ?? 0, to: values.price };
+                if (costMoved) changes.costPrice = { from: product.costPrice ?? 0, to: values.costPrice ?? 0 };
+                if (skuMoved) changes.sku = { from: product.sku ?? '', to: values.sku ?? '' };
+                if (categoryMoved) changes.category = { from: product.category ?? '', to: values.category ?? '' };
+
+                addToQueue({
+                    type: 'add-audit-log',
+                    payload: {
+                        businessId: business.id,
+                        userId: currentUserProfile.id,
+                        userName: currentUserProfile.name,
+                        userEmail: currentUserProfile.email,
+                        userRole: currentUserProfile.role,
+                        action: 'product.update',
+                        entityType: 'Product',
+                        entityId: product.id,
+                        details: {
+                            entityName: product.name,
+                            changes,
+                            reason: 'Full Edit Page',
+                        }
+                    }
+                }, `Logging price change for ${product.name}`);
+            }
+
+            toast({
+                variant: 'success',
+                title: t('inventory.changesQueuedTitle'),
+                description: navigator.onLine
+                    ? t('inventory.changesQueuedOnline', { name: values.name })
+                    : t('inventory.changesQueuedOffline', { name: values.name }),
+            });
+
+            isSubmitting.current = false;
+            setIsSaving(false);
+
+            router.push('/inventory');
+
+        } catch (error: any) {
+            console.error("Failed to queue product update:", error);
+            toast({ variant: 'destructive', title: t('inventory.updateFailedTitle'), description: error.message || t('inventory.unexpectedError') });
+            isSubmitting.current = false;
+            setIsSaving(false);
+        }
+    };
+
+    const handleToggleArchive = async () => {
+        if (!productId || !business || !currentUserProfile || !product) return;
+        if (isReadOnly) {
+            toast({
+                title: 'Trial Expired (Read-Only Mode)',
+                description: 'Your 30-day trial or plan has expired. Please upgrade to change product status.',
+                variant: 'destructive',
+            });
+            return;
+        }
+        const newArchived = !product.isArchived;
+
+        addToQueue({
+            type: 'update-product',
+            payload: {
+                productId,
+                values: {
+                    isArchived: newArchived,
+                    archivedAt: newArchived ? new Date().toISOString() : null,
+                    updatedAt: new Date().toISOString()
+                }
+            }
+        }, newArchived ? `Archiving ${product.name}...` : `Restoring ${product.name}...`);
+
+        addToQueue({
+            type: 'add-audit-log',
+            payload: {
+                businessId: business.id,
+                userId: currentUserProfile.id,
+                userName: currentUserProfile.name,
+                userEmail: currentUserProfile.email,
+                userRole: currentUserProfile.role,
+                action: newArchived ? 'product.archive' : 'product.restore',
+                entityType: 'Product',
+                entityId: productId,
+                details: {
+                    entityName: product.name,
+                    stock: product.stock,
+                    price: product.price,
+                    reason: newArchived ? 'Product discontinued / archived' : 'Product restored to active'
+                }
+            }
+        });
+
+        toast({
+            variant: newArchived ? "default" : "success",
+            title: newArchived ? "Product Discontinued / Archived" : "Product Restored to Active",
+            description: newArchived
+                ? `${product.name} is now archived and hidden from active POS sales. Past stock and sales history are preserved.`
+                : `${product.name} is now active and available for POS sales.`,
+        });
+    };
+
+    const handleDelete = async () => {
+        if (!productId || !business || !currentUserProfile) return;
+        if (isReadOnly) {
+            toast({
+                title: 'Trial Expired (Read-Only Mode)',
+                description: 'Your 30-day trial or plan has expired. Please upgrade to delete products.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        setIsDeleteDialogOpen(false);
+
+        addToQueue({
+            type: 'delete-product',
+            payload: { productIds: [productId] }
+        }, `Deleting product ${product?.name}`);
+
+        // Record what the system still believed was on the shelf.
+        //
+        // Deleting a product removes the item *and* its outstanding count in one
+        // action, so a shortage disappears with no adjustment left behind to
+        // question — the cleanest way to erase missing stock. `stockAtDeletion`
+        // is the only thing that makes that visible afterwards, and it cannot be
+        // reconstructed once the product document is gone. Forensics check S6.
+        addToQueue({
+            type: 'add-audit-log',
+            payload: {
+                businessId: business.id,
+                userId: currentUserProfile.id,
+                userName: currentUserProfile.name,
+                userEmail: currentUserProfile.email,
+                userRole: currentUserProfile.role,
+                action: 'product.delete',
+                entityType: 'Product',
+                entityId: productId,
+                details: {
+                    entityName: product?.name ?? null,
+                    stockAtDeletion: product?.stock ?? 0,
+                    price: product?.price ?? 0,
+                    costPrice: product?.costPrice ?? 0,
+                    sku: product?.sku ?? null,
+                }
+            }
+        }, `Logging deletion of ${product?.name}`);
+
+        toast({ variant: 'default', title: t('inventory.deletionQueuedTitle'), description: t('inventory.deletionQueuedNamed', { name: product?.name ?? '' }) });
+        router.push('/inventory');
+    };
+
+    const isLoading = !isMounted || isProductLoading || !firestore;
+    const canManageProduct = currentUserProfile?.role === 'admin' || currentUserProfile?.role === 'manager';
+
+    if (isLoading) {
+        return <EditProductSkeleton />;
+    }
+
+    if (!product) {
+        return <div>{t('inventory.productNotFound')}</div>;
+    }
+
+    return (
+        <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="grid flex-1 auto-rows-max gap-4 w-full max-w-full px-1.5 sm:px-0 overflow-x-hidden">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-4">
+                    <Button variant="outline" size="icon" className="h-7 w-7" asChild>
+                        <Link href="/inventory">
+                            <ChevronLeft className="h-4 w-4" />
+                            <span className="sr-only">{t('common.back')}</span>
+                        </Link>
+                    </Button>
+                    <h1 className="flex-1 min-w-0 text-xl font-semibold tracking-tight break-words leading-normal md:leading-relaxed">
+                        {categoryType === 'service'
+                            ? t('inventory.editServiceTitle', { name: product.name })
+                            : t('inventory.editProductTitle', { name: product.name })}
+                    </h1>
+                    <div className="hidden items-center gap-2 md:ml-auto md:flex">
+                        <Button variant="outline" size="lg" type="button" onClick={() => router.push('/inventory')}>
+                            {t('common.discard')}
+                        </Button>
+                        {canManageProduct && (
+                            <Button
+                                variant="outline"
+                                size="lg"
+                                type="button"
+                                onClick={handleToggleArchive}
+                                disabled={isSaving || isReadOnly}
+                                title={isReadOnly ? 'Plan expired (Read-only mode)' : undefined}
+                                className={cn(
+                                    "disabled:opacity-40 disabled:cursor-not-allowed",
+                                    product?.isArchived 
+                                        ? "border-emerald-500/50 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/15 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors" 
+                                        : "border-amber-500/50 text-amber-600 dark:text-amber-400 hover:bg-amber-500/15 hover:text-amber-700 dark:hover:text-amber-300 transition-colors"
+                                )}
+                            >
+                                {product?.isArchived ? (
+                                    <>
+                                        <ArchiveRestore className="mr-2 h-4 w-4" />
+                                        Restore to Active
+                                    </>
+                                ) : (
+                                    <>
+                                        <Archive className="mr-2 h-4 w-4" />
+                                        Discontinue / Archive
+                                    </>
+                                )}
+                            </Button>
+                        )}
+                        {canManageProduct && (
+                            <Button
+                                variant="destructive"
+                                size="lg"
+                                type="button"
+                                onClick={() => setIsDeleteDialogOpen(true)}
+                                disabled={isSaving || isReadOnly}
+                                title={isReadOnly ? 'Plan expired (Read-only mode)' : undefined}
+                                className="disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                {t('common.delete')}
+                            </Button>
+                        )}
+                        {canManageProduct && (
+                            <Button
+                                size="lg"
+                                type="submit"
+                                disabled={isSaving || isReadOnly}
+                                title={isReadOnly ? 'Plan expired (Read-only mode)' : undefined}
+                                className="disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                                {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                {categoryType === 'service' ? t('inventory.saveService') : t('inventory.saveProduct')}
+                            </Button>
+                        )}
+                    </div>
+                </div>
+                {product?.isArchived && (
+                    <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-amber-800 dark:text-amber-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                            <Archive className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
+                            <div>
+                                <p className="font-semibold text-sm">Discontinued / Archived Product</p>
+                                <p className="text-xs text-muted-foreground">
+                                    This product is hidden from active POS sales and registers. All stock history, sales receipts, and audit logs are safely preserved.
+                                </p>
+                            </div>
+                        </div>
+                        {canManageProduct && (
+                            <Button size="sm" variant="outline" type="button" onClick={handleToggleArchive} className="shrink-0 bg-background border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-500/15 hover:text-amber-800 dark:hover:text-amber-200 transition-colors">
+                                <ArchiveRestore className="mr-1.5 h-3.5 w-3.5" /> Restore Product
+                            </Button>
+                        )}
+                    </div>
+                )}
+                <Tabs defaultValue="details" className="w-full">
+                    <TabsList className="mb-4 grid w-full max-w-[400px] grid-cols-2">
+                        <TabsTrigger value="details">Product Details</TabsTrigger>
+                        <TabsTrigger value="history">Stock & Sales History</TabsTrigger>
+                    </TabsList>
+                    
+                    <TabsContent value="details">
+                        <div className="grid gap-4 md:grid-cols-[1fr_250px] lg:grid-cols-3 lg:gap-8">
+                    <div className="grid auto-rows-max items-start gap-4 lg:col-span-2 lg:gap-8">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>{categoryType === 'service' ? t('inventory.serviceDetails') : t('inventory.productDetails')}</CardTitle>
+                                <CardDescription>
+                                    {categoryType === 'service' ? t('inventory.serviceDetailsUpdateHint') : t('inventory.productDetailsUpdateHint')}
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="grid gap-6">
+                                    <FormField
+                                        control={form.control}
+                                        name="name"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <FormLabel>{t('common.name')}</FormLabel>
+                                                    <div className="flex items-center gap-2">
+                                                        {imagePreview && (
+                                                            <div className="relative w-7 h-7 rounded-md overflow-hidden border border-border shadow-2xs shrink-0">
+                                                                <Image src={imagePreview} alt="Preview" fill className="object-cover" />
+                                                            </div>
+                                                        )}
+                                                        <UnsplashImagePicker 
+                                                            onImageSelect={handleWebImageSelect}
+                                                            initialSearchQuery={form.watch('name')}
+                                                            disabled={!canManageProduct}
+                                                            isExistingProduct={true}
+                                                            trigger={
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    className="h-7 text-xs gap-1.5 text-primary border-primary/30 hover:bg-primary/10 hover:text-primary transition-all font-medium"
+                                                                    disabled={!canManageProduct}
+                                                                >
+                                                                    <Search className="h-3.5 w-3.5" />
+                                                                    <span>{imagePreview ? 'Change Web Image' : 'Search Web for Image'}</span>
+                                                                </Button>
+                                                            }
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <FormControl>
+                                                    <Input placeholder={t('inventory.namePlaceholder')} {...field} disabled={!canManageProduct} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="description"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>{t('common.description')}</FormLabel>
+                                                <FormControl>
+                                                    <Textarea placeholder={t('inventory.descriptionPlaceholder')} className="min-h-32" {...field} disabled={!canManageProduct} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {categoryType === 'product' && (
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle>{t('inventory.inventoryConfig')}</CardTitle>
+                                    <CardDescription>{t('inventory.inventoryConfigHint')}</CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-6">
+                                    <FormField
+                                        control={form.control}
+                                        name="type"
+                                        render={({ field }) => (
+                                            <FormItem className="space-y-3">
+                                                <FormLabel>{t('inventory.productType')}</FormLabel>
+                                                <FormControl>
+                                                    <RadioGroup
+                                                        onValueChange={field.onChange}
+                                                        defaultValue={field.value}
+                                                        className="flex flex-col sm:flex-row gap-4"
+                                                        disabled={!canManageProduct}
+                                                    >
+                                                        <FormItem className="flex items-center space-x-3 space-y-0">
+                                                            <FormControl>
+                                                                <RadioGroupItem value="single" />
+                                                            </FormControl>
+                                                            <FormLabel className="font-normal">{t('inventory.standardItem')}</FormLabel>
+                                                        </FormItem>
+                                                            <FormItem className="flex items-center space-x-3 space-y-0">
+                                                                <FormControl>
+                                                                    <RadioGroupItem value="variant" />
+                                                                </FormControl>
+                                                                <FormLabel className="font-normal">{t('inventory.variant')}</FormLabel>
+                                                            </FormItem>
+                                                        </RadioGroup>
+                                                    </FormControl>
+                                                    <FormDescription>
+                                                        {productType === 'variant' ? t('inventory.variantTypeHint') : t('inventory.singleTypeHint')}
+                                                    </FormDescription>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+
+                                    <Separator />
+
+                                    <div className="space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <FormLabel className="flex items-center gap-1.5">
+                                                {t('inventory.uomTitle')}
+                                                <TooltipProvider>
+                                                    <Tooltip delayDuration={300}>
+                                                        <TooltipTrigger asChild>
+                                                            <Info className="h-4 w-4 text-muted-foreground hover:text-foreground transition-colors cursor-help" />
+                                                        </TooltipTrigger>
+                                                        <TooltipContent className="max-w-[250px]">
+                                                            <p>{t('inventory.uomTooltip')}</p>
+                                                        </TooltipContent>
+                                                    </Tooltip>
+                                                </TooltipProvider>
+                                            </FormLabel>
+                                            <Button type="button" variant="outline" size="sm" onClick={() => appendUom({ unitName: "", multiplier: 1 })} disabled={!canManageProduct}>
+                                                <Plus className="h-4 w-4 mr-2" /> {t('inventory.addUom')}
+                                            </Button>
+                                        </div>
+
+                                        <div className="grid gap-4 sm:grid-cols-2">
+                                            <FormField
+                                                control={form.control}
+                                                name="baseUnit"
+                                                render={({ field }) => (
+                                                    <FormItem>
+                                                        <FormLabel className="text-xs">{t('inventory.baseUnit')}</FormLabel>
+                                                        <FormControl>
+                                                            <Input placeholder={t('inventory.baseUnitPlaceholder')} {...field} disabled={!canManageProduct} />
+                                                        </FormControl>
+                                                        <FormMessage />
+                                                        <FormDescription className="text-[11px] text-muted-foreground">
+                                                            {t('inventory.baseUnitHint')}
+                                                        </FormDescription>
+                                                    </FormItem>
+                                                )}
+                                            />
+                                        </div>
+
+                                        {uomFields.map((field, index) => (
+                                            <div key={field.id} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end p-3 border rounded-lg bg-muted/30">
+                                                <FormField
+                                                    control={form.control}
+                                                    name={`uomConversions.${index}.unitName`}
+                                                    render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel className="text-xs">{t('inventory.unitName')}</FormLabel>
+                                                            <FormControl><Input placeholder={t('inventory.unitNamePlaceholder')} {...field} disabled={!canManageProduct} /></FormControl>
+                                                            <FormMessage />
+                                                        <FormDescription className="text-[11px] text-muted-foreground">
+                                                            {t('inventory.baseUnitHint')}
+                                                        </FormDescription>
+                                                        </FormItem>
+                                                    )}
+                                                />
+                                                <FormField
+                                                    control={form.control}
+                                                    name={`uomConversions.${index}.multiplier`}
+                                                    render={({ field }) => (
+                                                        <FormItem>
+                                                            <FormLabel className="text-xs">{t('inventory.uomMultiplier')}</FormLabel>
+                                                            <FormControl><Input type="number" {...field} disabled={!canManageProduct} /></FormControl>
+                                                            <FormMessage />
+                                                        <FormDescription className="text-[11px] text-muted-foreground">
+                                                            {t('inventory.baseUnitHint')}
+                                                        </FormDescription>
+                                                        </FormItem>
+                                                    )}
+                                                />
+                                                <div className="flex gap-2">
+                                                    <FormField
+                                                        control={form.control}
+                                                        name={`uomConversions.${index}.price`}
+                                                        render={({ field }) => (
+                                                            <FormItem className="flex-1">
+                                                                <FormLabel className="text-xs">{t('inventory.priceOptional')}</FormLabel>
+                                                                <FormControl><Input type="number" placeholder={t('inventory.priceOverride')} {...field} disabled={!canManageProduct} /></FormControl>
+                                                                <FormMessage />
+                                                        <FormDescription className="text-[11px] text-muted-foreground">
+                                                            {t('inventory.baseUnitHint')}
+                                                        </FormDescription>
+                                                            </FormItem>
+                                                        )}
+                                                    />
+                                                    <Button type="button" variant="ghost" size="icon" onClick={() => removeUom(index)} className="text-destructive" disabled={!canManageProduct}><Trash className="h-4 w-4" /></Button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                </CardContent>
+                            </Card>
+                        )}
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>{categoryType === 'product' ? t('inventory.pricingAndStockTitle') : t('inventory.pricingTitle')}</CardTitle>
+                                <CardDescription>
+                                    {categoryType === 'service' ? t('inventory.pricingServiceHint') : t('inventory.pricingProductHint')}
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="grid gap-6 sm:grid-cols-2 md:grid-cols-4">
+                                    {categoryType === 'product' && (
+                                        <FormField
+                                            control={form.control}
+                                            name="sku"
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel>{t('inventory.barcodeSku')}</FormLabel>
+                                                    <div className="flex gap-2">
+                                                        <FormControl>
+                                                            <Input placeholder={t('inventory.skuPlaceholder')} {...field} disabled={!canManageProduct} />
+                                                        </FormControl>
+                                                        {canManageProduct && (
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
+                                                                size="icon"
+                                                                onClick={() => setIsScannerOpen(true)}
+                                                                className="shrink-0"
+                                                            >
+                                                                <QrCode className="h-4 w-4" />
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                    )}
+                                    {categoryType === 'product' && (
+                                        <FormField
+                                            control={form.control}
+                                            name="expiryDate"
+                                            render={({ field }) => (
+                                                <FormItem className="flex flex-col pt-2">
+                                                    <FormLabel>{t('inventory.expiryDate')}</FormLabel>
+                                                    <FormControl>
+                                                        <Input
+                                                            type="date"
+                                                            disabled={!canManageProduct}
+                                                            value={(() => {
+                                                                if (!field.value) return '';
+                                                                try {
+                                                                    const raw = field.value;
+                                                                    const d = typeof raw?.toDate === 'function' ? raw.toDate() : (raw instanceof Date ? raw : new Date(raw));
+                                                                    return !isNaN(d.getTime()) ? format(d, 'yyyy-MM-dd') : '';
+                                                                } catch {
+                                                                    return '';
+                                                                }
+                                                            })()}
+                                                            onChange={(e) => {
+                                                                const val = e.target.value;
+                                                                field.onChange(val ? new Date(val) : undefined);
+                                                            }}
+                                                        />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                    )}
+                                    {categoryType === 'product' && (
+                                        <FormField
+                                            control={form.control}
+                                            name="stock"
+                                            render={({ field }) => {
+                                                const currentStock = product?.stock || 0;
+                                                const newTotal = typeof field.value === 'number' ? field.value : parseInt(field.value || '0', 10);
+                                                const addedAmount = newTotal - currentStock;
+
+                                                return (
+                                                    <FormItem className="sm:col-span-2 md:col-span-4 border border-border/60 p-4 rounded-2xl bg-card shadow-sm">
+                                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                                                            <div>
+                                                                <FormLabel className="text-base font-semibold">
+                                                                    {product ? "+ Add / Restock Stock" : t('inventory.stock')}
+                                                                </FormLabel>
+                                                                <p className="text-xs text-muted-foreground">
+                                                                    {product ? "Enter the quantity of new stock purchased/added" : "Manage initial stock level for this item"}
+                                                                </p>
+                                                            </div>
+                                                            <Button 
+                                                                type="button" 
+                                                                variant="outline" 
+                                                                size="sm" 
+                                                                className="shrink-0 text-xs gap-1.5 border-emerald-500/40 bg-emerald-50/50 hover:bg-emerald-100/70 hover:border-emerald-500/60 dark:bg-emerald-950/20 dark:hover:bg-emerald-900/40 text-emerald-700 hover:text-emerald-800 dark:text-emerald-300 dark:hover:text-emerald-200 transition-colors font-medium shadow-none"
+                                                                onClick={() => setIsVisualStockDialogOpen(true)}
+                                                            >
+                                                                <Camera className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                                                                <span className="text-emerald-700 hover:text-emerald-800 dark:text-emerald-300 dark:hover:text-emerald-200">Visual Stock Take</span>
+                                                            </Button>
+                                                            <ProductVisualStockTakeDialog
+                                                                open={isVisualStockDialogOpen}
+                                                                onOpenChange={setIsVisualStockDialogOpen}
+                                                                productName={product?.name || form.getValues('name') || 'Product'}
+                                                                productImage={product?.imageUrl || imagePreview}
+                                                                currentStock={currentStock}
+                                                                onApplyCount={(counted, mode) => {
+                                                                    if (mode === 'add') {
+                                                                        setQuantityToAddInput(String(counted));
+                                                                        field.onChange(currentStock + counted);
+                                                                        toast({
+                                                                            title: "Stock Restock Applied 📦",
+                                                                            description: `Added +${counted} units of ${product?.name || 'product'} to stock.`,
+                                                                            variant: "success",
+                                                                        });
+                                                                    } else {
+                                                                        const added = counted - currentStock;
+                                                                        setQuantityToAddInput(String(added));
+                                                                        field.onChange(counted);
+                                                                        toast({
+                                                                            title: "Total Stock Updated 📦",
+                                                                            description: `Stock level set to ${counted} units.`,
+                                                                            variant: "success",
+                                                                        });
+                                                                    }
+                                                                }}
+                                                            />
+                                                        </div>
+                                                        
+                                                        {/* Visual Math UI */}
+                                                        {product && (
+                                                            <div className="flex items-center justify-between px-4 py-3 bg-muted/60 border border-border/40 rounded-xl mb-4">
+                                                                <div className="text-center">
+                                                                    <p className="text-[11px] text-muted-foreground mb-0.5 uppercase tracking-wider font-semibold">Current Stock</p>
+                                                                    <p className="text-lg font-bold">{currentStock}</p>
+                                                                </div>
+                                                                <div className="text-lg font-light text-muted-foreground">+</div>
+                                                                <div className="text-center">
+                                                                    <p className="text-[11px] text-primary mb-0.5 uppercase tracking-wider font-semibold">Adding</p>
+                                                                    <p className="text-lg font-bold text-primary">{addedAmount > 0 ? `+${addedAmount}` : addedAmount}</p>
+                                                                </div>
+                                                                <div className="text-lg font-light text-muted-foreground">=</div>
+                                                                <div className="text-center">
+                                                                    <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mb-0.5 uppercase tracking-wider font-semibold">New Total</p>
+                                                                    <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{newTotal}</p>
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        <FormControl>
+                                                            {product ? (
+                                                                <Input 
+                                                                    type="number" 
+                                                                    placeholder="e.g. 9 to add 9 more units" 
+                                                                    value={quantityToAddInput} 
+                                                                    disabled={!canManageProduct} 
+                                                                    onChange={(e) => {
+                                                                        const val = e.target.value;
+                                                                        setQuantityToAddInput(val);
+                                                                        const parsed = parseInt(val || '0', 10);
+                                                                        const safeAdded = isNaN(parsed) ? 0 : parsed;
+                                                                        field.onChange(currentStock + safeAdded);
+                                                                    }}
+                                                                />
+                                                            ) : (
+                                                                <Input 
+                                                                    type="number" 
+                                                                    placeholder="e.g. 10" 
+                                                                    value={field.value ?? 0} 
+                                                                    disabled={!canManageProduct} 
+                                                                    onChange={(e) => {
+                                                                        const val = parseInt(e.target.value || '0', 10);
+                                                                        field.onChange(isNaN(val) ? 0 : val);
+                                                                    }}
+                                                                />
+                                                            )}
+                                                        </FormControl>
+                                                        <FormDescription className="text-xs mt-1.5">
+                                                            {product ? (
+                                                                <span>
+                                                                    Enter quantity being added (e.g. typing <strong>9</strong> adds 9 to current <strong>{currentStock}</strong> = <strong>{newTotal}</strong> total). Use negative numbers to subtract stock.
+                                                                </span>
+                                                            ) : (
+                                                                "Enter initial stock quantity."
+                                                            )}
+                                                        </FormDescription>
+                                                        <FormMessage />
+                                                        <FormDescription className="text-[11px] text-muted-foreground">
+                                                            {t('inventory.baseUnitHint')}
+                                                        </FormDescription>
+                                                    </FormItem>
+                                                )
+                                            }}
+                                        />
+                                    )}
+                                    {categoryType === 'product' && (
+                                        <FormField
+                                            control={form.control}
+                                            name="lowStockThreshold"
+                                            render={({ field }) => (
+                                                <FormItem>
+                                                    <FormLabel className="flex items-center gap-1.5">
+                                                        Reorder Point
+                                                        <TooltipProvider>
+                                                            <Tooltip delayDuration={300}>
+                                                                <TooltipTrigger asChild>
+                                                                    <Info className="h-4 w-4 text-muted-foreground hover:text-foreground transition-colors cursor-help" />
+                                                                </TooltipTrigger>
+                                                                <TooltipContent className="max-w-[250px]">
+                                                                    <p>We'll alert you when stock falls to or below this level.</p>
+                                                                </TooltipContent>
+                                                            </Tooltip>
+                                                        </TooltipProvider>
+                                                    </FormLabel>
+                                                    <FormControl>
+                                                        <Input type="number" placeholder="5" {...field} value={field.value ?? ''} disabled={!canManageProduct} />
+                                                    </FormControl>
+                                                    <FormDescription className="text-xs">
+                                                        Minimum threshold for low stock alert
+                                                    </FormDescription>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                    )}
+                                    <FormField
+                                        control={form.control}
+                                        name="price"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>{t('common.price')}</FormLabel>
+                                                <FormControl>
+                                                    <Input type="number" step="0.01" placeholder="349.99" {...field} disabled={!canManageProduct} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                    <FormField
+                                        control={form.control}
+                                        name="costPrice"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel className="flex items-center gap-1.5">
+                                                    {t('inventory.costPrice')}
+                                                    <TooltipProvider>
+                                                        <Tooltip delayDuration={300}>
+                                                            <TooltipTrigger asChild>
+                                                                <Info className="h-4 w-4 text-muted-foreground hover:text-foreground transition-colors cursor-help" />
+                                                            </TooltipTrigger>
+                                                            <TooltipContent className="max-w-[250px]">
+                                                                <p>{t('inventory.costPriceTooltip')}</p>
+                                                            </TooltipContent>
+                                                        </Tooltip>
+                                                    </TooltipProvider>
+                                                </FormLabel>
+                                                <FormControl>
+                                                    <Input type="number" step="0.01" placeholder="250.00" {...field} disabled={!canManageProduct} />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
+                            </CardContent>
+                        </Card>
+
+                        {categoryType === 'product' && (industryConfig.hasSerialNumbers || form.watch('isSerializable') || product.isSerializable) && (
+                            <Card className="border-blue-500/20 bg-blue-50/5 dark:bg-blue-950/10">
+                                <CardHeader>
+                                    <CardTitle className="text-base flex items-center justify-between">
+                                        <span className="flex items-center gap-2">
+                                            📱 Electronics IMEI & Serial Numbers
+                                        </span>
+                                        <Badge variant="secondary" className="text-xs">
+                                            {industryConfig.label}
+                                        </Badge>
+                                    </CardTitle>
+                                    <CardDescription className="text-xs">
+                                        Track unique serial numbers or IMEIs for electronics, appliances, and high-value devices.
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                    <FormField
+                                        control={form.control}
+                                        name="serialNumbersInput"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel className="text-xs font-semibold">IMEI / Serial Numbers (One per line or comma-separated)</FormLabel>
+                                                <FormControl>
+                                                    <Textarea
+                                                        placeholder="e.g. 354890123456789&#10;354890123456790"
+                                                        className="min-h-24 text-xs font-mono"
+                                                        {...field}
+                                                        disabled={!canManageProduct}
+                                                    />
+                                                </FormControl>
+                                                <FormDescription className="text-[11px] text-muted-foreground">
+                                                    Cashiers scan or select from these exact IMEIs during POS checkout, which prints on warranty receipts.
+                                                </FormDescription>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </CardContent>
+                            </Card>
+                        )}
+
+
+                    </div>
+                    <div className="grid auto-rows-max items-start gap-4 lg:gap-8">
+                        <Card>
+                            <CardHeader>
+                                <div className="flex items-center justify-between">
+                                    <CardTitle>{categoryType === 'service' ? t('inventory.serviceCategory') : t('inventory.productCategory')}</CardTitle>
+                                    {canManageProduct && (
+                                        <>
+                                            {isMounted && isNewCategoryModalOpen && createPortal(
+                                                <div 
+                                                    className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[1px] transition-opacity animate-in fade-in-0" 
+                                                    onClick={() => setIsNewCategoryModalOpen(false)} 
+                                                />,
+                                                document.body
+                                            )}
+                                            <Dialog open={isNewCategoryModalOpen} onOpenChange={setIsNewCategoryModalOpen} modal={false}>
+                                                <DialogTrigger asChild>
+                                                    <Button variant="outline" size="sm" type="button" className="h-7 text-xs">
+                                                        <Plus className="h-3 w-3 mr-1" /> {t('inventory.manageCategories')}
+                                                    </Button>
+                                                </DialogTrigger>
+                                                <DialogContent className="sm:max-w-[480px]">
+                                                    <DialogHeader>
+                                                        <DialogTitle>{t('inventory.manageCategories')}</DialogTitle>
+                                                        <DialogDescription className="text-xs text-muted-foreground">
+                                                            {t('inventory.manageCategoriesHint')}
+                                                        </DialogDescription>
+                                                    </DialogHeader>
+
+                                                    <div className="space-y-3 py-2 border-b pb-4">
+                                                        <Label className="text-xs font-semibold">{t('inventory.addNewCategory')}</Label>
+                                                        <div className="flex gap-2">
+                                                            <Input
+                                                                placeholder={t('inventory.newCategoryPlaceholder')}
+                                                                value={newCategoryName}
+                                                                onChange={(e) => setNewCategoryName(e.target.value)}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter') {
+                                                                        e.preventDefault();
+                                                                        handleAddCategory();
+                                                                    }
+                                                                }}
+                                                            />
+                                                            <Button type="button" onClick={handleAddCategory} disabled={!newCategoryName.trim() || isAddingCategory} className="shrink-0">
+                                                                {isAddingCategory ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4 mr-1" />}
+                                                                {t('common.add')}
+                                                            </Button>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="space-y-3 pt-2">
+                                                        <Label className="text-xs font-semibold">{t('inventory.existingCategories')}</Label>
+                                                        <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+                                                            {business?.settings?.productCategories && business.settings.productCategories.length > 0 ? (
+                                                                business.settings.productCategories.map((cat: string) => (
+                                                                    <div key={cat} className="flex items-center justify-between p-2 rounded-md bg-muted/50 border text-sm">
+                                                                        <span className="font-medium">{cat}</span>
+                                                                        <Button
+                                                                            type="button"
+                                                                            variant="ghost"
+                                                                            size="icon"
+                                                                            className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                                                            onClick={() => handleDeleteCategory(cat)}
+                                                                        >
+                                                                            <Trash2 className="h-4 w-4" />
+                                                                            <span className="sr-only">{t('inventory.deleteCategoryAria', { name: cat })}</span>
+                                                                        </Button>
+                                                                    </div>
+                                                                ))
+                                                            ) : (
+                                                                <p className="text-xs text-muted-foreground italic py-2">{t('inventory.noCategoriesYet')}</p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    <DialogFooter className="pt-2">
+                                                        <Button type="button" variant="outline" onClick={() => setIsNewCategoryModalOpen(false)}>{t('common.done')}</Button>
+                                                    </DialogFooter>
+                                                </DialogContent>
+                                            </Dialog>
+                                        </>
+                                    )}
+                                </div>
+                                <div className="mt-4 space-y-4 px-2">
+                                    <FormField
+                                        control={form.control}
+                                        name="categoryType"
+                                        render={({ field }) => (
+                                            <FormItem className="space-y-1">
+                                                <FormLabel className="text-xs">{t('common.type')}</FormLabel>
+                                                <FormControl>
+                                                    <RadioGroup
+                                                        onValueChange={field.onChange}
+                                                        value={field.value}
+                                                        className="flex gap-4"
+                                                        disabled={!canManageProduct}
+                                                    >
+                                                        <FormItem className="flex items-center space-x-2 space-y-0">
+                                                            <FormControl>
+                                                                <RadioGroupItem value="product" />
+                                                            </FormControl>
+                                                            <FormLabel className="font-normal text-xs">{t('inventory.typeProduct')}</FormLabel>
+                                                        </FormItem>
+                                                        <FormItem className="flex items-center space-x-2 space-y-0">
+                                                            <FormControl>
+                                                                <RadioGroupItem value="service" />
+                                                            </FormControl>
+                                                            <FormLabel className="font-normal text-xs">{t('inventory.typeService')}</FormLabel>
+                                                        </FormItem>
+                                                    </RadioGroup>
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
+                            </CardHeader>
+                            <CardContent>
+                                <FormField
+                                    control={form.control}
+                                    name="category"
+                                    render={({ field }) => (
+                                        <FormItem>
+                                             <DropdownMenu modal={false}>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="outline" type="button" className="w-full justify-between font-normal bg-background h-10 px-3 border-input" disabled={!canManageProduct}>
+                                                        <span>{field.value || t('inventory.selectCategory')}</span>
+                                                        <ChevronDown className="h-4 w-4 opacity-50 ml-2" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent className="w-[var(--radix-dropdown-menu-trigger-width)] max-h-60 overflow-y-auto z-50">
+                                                    {business?.settings?.productCategories && business.settings.productCategories.length > 0 ? (
+                                                        business.settings.productCategories.map((cat: string) => (
+                                                            <DropdownMenuItem key={cat} onClick={() => field.onChange(cat)} className="cursor-pointer">
+                                                                {cat}
+                                                            </DropdownMenuItem>
+                                                        ))
+                                                    ) : (
+                                                        <div className="p-4 text-center text-sm text-muted-foreground">
+                                                            {t('inventory.noCategoriesDefined')}
+                                                        </div>
+                                                    )}
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+                            </CardContent>
+                        </Card>
+                        <Card className="overflow-hidden">
+                            <CardHeader>
+                                <CardTitle>{categoryType === 'service' ? t('inventory.serviceImage') : t('inventory.productImage')}</CardTitle>
+                                <CardDescription>
+                                    {categoryType === 'service' ? t('inventory.serviceImageHint') : t('inventory.productImageHint')}
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="grid gap-2">
+                                    <div className="w-full aspect-square rounded-md border-2 border-dashed border-muted-foreground/50 flex items-center justify-center relative overflow-hidden">
+                                        {imagePreview ? (
+                                            <Image src={imagePreview} alt={categoryType === 'service' ? t('inventory.servicePreviewAlt') : t('inventory.productPreviewAlt')} fill style={{ objectFit: "cover" }} />
+                                        ) : (
+                                            <div className="text-center text-muted-foreground">
+                                                <Upload className="mx-auto h-8 w-8" />
+                                                <p className="mt-2 text-sm">{t('inventory.clickToUpload')}</p>
+                                            </div>
+                                        )}
+                                        <Input
+                                            id="file-upload"
+                                            type="file"
+                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                            accept="image/png, image/jpeg, image/gif"
+                                            onChange={handleImageChange}
+                                            disabled={!canManageProduct}
+                                        />
+                                    </div>
+                                    {imagePreview && canManageProduct && (
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            type="button"
+                                            onClick={() => {
+                                                setImagePreview(null);
+                                                setImageFile(null);
+                                                if (product?.id) {
+                                                    addToQueue({
+                                                        type: 'update-product',
+                                                        payload: {
+                                                            productId: product.id,
+                                                            values: { imageUrl: '' }
+                                                        }
+                                                    }, `Removed image for ${product.name || 'product'}`);
+                                                    toast({
+                                                        title: 'Image Removed',
+                                                        description: 'Product image removed from catalog.'
+                                                    });
+                                                }
+                                            }}
+                                            className="w-full text-xs text-muted-foreground hover:text-destructive h-8"
+                                        >
+                                            <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                                            {t('common.remove') || 'Remove Image'}
+                                        </Button>
+                                    )}
+                                    <UnsplashImagePicker 
+                                        onImageSelect={handleWebImageSelect}
+                                        initialSearchQuery={form.watch('name')}
+                                        disabled={!canManageProduct}
+                                        isExistingProduct={true}
+                                    />
+                                </div>
+                            </CardContent>
+                        </Card>
+                        {categoryType === 'product' && (
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle>{t('inventory.barcode')}</CardTitle>
+                                    <CardDescription>
+                                        {t('inventory.barcodeGeneratedHint')}
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                    {product.sku ? (
+                                        <div className="flex justify-center bg-white p-2 rounded-md w-full overflow-x-auto">
+                                            <BarcodeDisplay value={product.sku} width={1.5} height={60} />
+                                        </div>
+                                    ) : (
+                                        <p className="text-sm text-muted-foreground text-center">
+                                            {t('inventory.addSkuForBarcode')}
+                                        </p>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        )}
+
+
+                    </div>
+                </div>
+                </TabsContent>
+
+                <TabsContent value="history">
+                {(categoryType === 'product' || categoryType === 'service') && (
+                    <Card className="border-primary/10 shadow-sm overflow-hidden mt-4">
+                        <CardHeader className="bg-primary/5 pb-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                <div className="space-y-1">
+                                    <CardTitle className="text-base flex items-center gap-2">
+                                        <HistoryIcon className="h-4 w-4 text-primary" />
+                                        Sales Performance & Profit Trend
+                                    </CardTitle>
+                                    <CardDescription className="text-xs">
+                                        Track revenue, net profit, and units sold over the selected timeline.
+                                    </CardDescription>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+                                    {/* Metric Mode Filter */}
+                                    <div className="flex items-center gap-1 bg-background p-1 rounded-lg border text-xs">
+                                        {[
+                                            { id: 'both', label: 'Revenue & Profit' },
+                                            { id: 'revenue', label: 'Revenue' },
+                                            { id: 'profit', label: 'Profit' },
+                                            { id: 'units', label: 'Units Sold' },
+                                        ].map((m) => (
+                                            <button
+                                                key={m.id}
+                                                type="button"
+                                                onClick={() => setChartMetric(m.id as any)}
+                                                className={cn(
+                                                    "px-2 py-0.5 rounded text-[11px] font-medium transition-all",
+                                                    chartMetric === m.id 
+                                                        ? "bg-primary text-primary-foreground shadow-sm font-semibold" 
+                                                        : "text-muted-foreground hover:text-foreground"
+                                                )}
+                                            >
+                                                {m.label}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    {/* Time Period Filter */}
+                                    <div className="flex items-center gap-1 bg-background/80 p-1 rounded-lg border text-xs">
+                                        {[
+                                            { id: '30d', label: '30D' },
+                                            { id: '90d', label: '90D' },
+                                            { id: '6m', label: '6M' },
+                                            { id: '1y', label: '1Y' },
+                                            { id: 'all', label: 'All' },
+                                        ].map((p) => (
+                                            <button
+                                                key={p.id}
+                                                type="button"
+                                                onClick={() => setSalesPeriod(p.id as any)}
+                                                className={cn(
+                                                    "px-2 py-0.5 rounded text-[11px] font-medium transition-all",
+                                                    salesPeriod === p.id 
+                                                        ? "bg-primary text-primary-foreground shadow-sm font-semibold" 
+                                                        : "text-muted-foreground hover:text-foreground"
+                                                )}
+                                            >
+                                                {p.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Product Profit & Revenue KPI Strip */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4 pt-3 border-t border-border/50">
+                                <div className="p-2.5 rounded-lg bg-background/90 border border-border/60">
+                                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">Total Revenue</span>
+                                    <span className="text-base font-bold text-emerald-600 dark:text-emerald-400 block mt-0.5">
+                                        {currencySymbol}{periodTotals.revenue.toLocaleString()}
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground block">Gross sales value</span>
+                                </div>
+
+                                <div className="p-2.5 rounded-lg bg-background/90 border border-border/60">
+                                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">Total Profit</span>
+                                    <span className={cn("text-base font-bold block mt-0.5", periodTotals.profit >= 0 ? "text-indigo-600 dark:text-indigo-400" : "text-destructive")}>
+                                        {currencySymbol}{periodTotals.profit.toLocaleString()}
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground block">Profit after unit cost</span>
+                                </div>
+
+                                <div className="p-2.5 rounded-lg bg-background/90 border border-border/60">
+                                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">Units Sold</span>
+                                    <span className="text-base font-bold text-foreground block mt-0.5">
+                                        {periodTotals.units.toLocaleString()}
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground block">Total quantity moved</span>
+                                </div>
+
+                                <div className="p-2.5 rounded-lg bg-background/90 border border-border/60">
+                                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">Profit Margin</span>
+                                    <span className={cn("text-base font-bold block mt-0.5", periodTotals.marginPct >= 0 ? "text-foreground" : "text-destructive")}>
+                                        {periodTotals.marginPct.toFixed(1)}%
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground block">Margin on sales</span>
+                                </div>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="pt-6 pb-2">
+                            <div className="h-[200px] w-full">
+                                {salesData.every(d => d.sold === 0) ? (
+                                    <div className="h-full flex flex-col items-center justify-center text-muted-foreground text-sm">
+                                        <p>No sales data available yet.</p>
+                                    </div>
+                                ) : (
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <LineChart data={salesData} margin={{ top: 10, right: 20, bottom: 5, left: 10 }}>
+                                            <XAxis dataKey="name" fontSize={12} tickLine={false} axisLine={false} tickMargin={8} stroke="#888888" />
+                                            <YAxis 
+                                                fontSize={12} 
+                                                tickLine={false} 
+                                                axisLine={false} 
+                                                tickFormatter={(val) => chartMetric === 'units' ? `${val}` : `${currencySymbol}${val >= 1000 ? (val / 1000).toFixed(0) + 'k' : val}`} 
+                                                stroke="#888888" 
+                                            />
+                                            <RechartsTooltip 
+                                                cursor={{ stroke: '#2563eb', strokeWidth: 1, strokeDasharray: '4 4' }}
+                                                contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                                formatter={(value: any, name: string) => {
+                                                    const num = Number(value) || 0;
+                                                    if (name === 'Units Sold') return [num.toLocaleString(), name];
+                                                    return [`${currencySymbol}${num.toLocaleString()}`, name];
+                                                }}
+                                            />
+                                            {(chartMetric === 'both' || chartMetric === 'revenue') && (
+                                                <Line 
+                                                    type="monotone" 
+                                                    dataKey="revenue" 
+                                                    name="Revenue" 
+                                                    stroke="#10b981" 
+                                                    strokeWidth={3} 
+                                                    dot={{ r: 4, strokeWidth: 2, fill: 'white' }} 
+                                                    activeDot={{ r: 6, stroke: '#10b981', strokeWidth: 2, fill: '#10b981' }} 
+                                                />
+                                            )}
+                                            {(chartMetric === 'both' || chartMetric === 'profit') && (
+                                                <Line 
+                                                    type="monotone" 
+                                                    dataKey="profit" 
+                                                    name="Profit" 
+                                                    stroke="#6366f1" 
+                                                    strokeWidth={3} 
+                                                    dot={{ r: 4, strokeWidth: 2, fill: 'white' }} 
+                                                    activeDot={{ r: 6, stroke: '#6366f1', strokeWidth: 2, fill: '#6366f1' }} 
+                                                />
+                                            )}
+                                            {chartMetric === 'units' && (
+                                                <Line 
+                                                    type="monotone" 
+                                                    dataKey="sold" 
+                                                    name="Units Sold" 
+                                                    stroke="#2563eb" 
+                                                    strokeWidth={3} 
+                                                    dot={{ r: 4, strokeWidth: 2, fill: 'white' }} 
+                                                    activeDot={{ r: 6, stroke: '#2563eb', strokeWidth: 2, fill: '#2563eb' }} 
+                                                />
+                                            )}
+                                        </LineChart>
+                                    </ResponsiveContainer>
+                                )}
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
+                {product?.id && (categoryType === 'product' || categoryType === 'service') && (
+                    <div className="mt-4">
+                        <ProductStockHistoryChart productId={product.id} externalLogs={stockLogs} />
+                    </div>
+                )}
+
+                {(categoryType === 'product' || categoryType === 'service') && (
+                    <Card className="border-primary/10 shadow-sm overflow-hidden mt-4">
+                        <CardHeader className="bg-primary/5 pb-4">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                <div className="space-y-1">
+                                    <CardTitle className="text-base flex items-center gap-2">
+                                        <HistoryIcon className="h-4 w-4 text-primary" />
+                                        {categoryType === 'service' ? t('inventory.serviceHistoryTitle') : t('inventory.stockHistoryTitle')}
+                                    </CardTitle>
+                                    <CardDescription className="text-xs">
+                                        {categoryType === 'service'
+                                            ? t('inventory.serviceHistoryHint')
+                                            : t('inventory.stockHistoryHint')}
+                                    </CardDescription>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className="relative">
+                                        <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                                        <Input
+                                            placeholder="Search logs..."
+                                            value={logSearchTerm}
+                                            onChange={(e) => setLogSearchTerm(e.target.value)}
+                                            className="pl-8 h-8 w-[150px] sm:w-[200px] text-xs"
+                                        />
+                                    </div>
+                                <DropdownMenu modal={false}>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button variant="outline" size="sm" className="w-[150px] h-8 text-[11px] justify-between bg-background font-normal">
+                                            <span>
+                                                {logFilter === 'all' ? 'All Transactions' : logFilter === 'in' ? 'Stock In (Restocks)' : logFilter === 'out' ? 'Stock Out (Sales)' : logFilter === 'return' ? 'Returns (Voided)' : logFilter === 'edit' ? 'Product Edits' : 'Adjustments'}
+                                            </span>
+                                            <ChevronDown className="h-3.5 w-3.5 opacity-50 ml-1" />
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" className="w-[150px]">
+                                        <DropdownMenuItem onClick={() => setLogFilter('all')}>All Transactions</DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => setLogFilter('in')}>Stock In (Restocks)</DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => setLogFilter('out')}>Stock Out (Sales)</DropdownMenuItem>
+                                        <DropdownMenuItem onClick={() => setLogFilter('return')}>Returns (Voided)</DropdownMenuItem>
+                                        {categoryType === 'product' && <DropdownMenuItem onClick={() => setLogFilter('adjustment')}>{t('inventory.logFilterAdjustments')}</DropdownMenuItem>}
+                                        <DropdownMenuItem onClick={() => setLogFilter('edit')}>Product Edits (Audit Log)</DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                                </div>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="p-0">
+                            <Table>
+                                <TableHeader className="bg-muted/30">
+                                    <TableRow>
+                                        <TableHead className="text-[10px] uppercase font-bold py-2 px-4">{t('inventory.colAction')}</TableHead>
+                                        <TableHead className="text-[10px] uppercase font-bold py-2">{t('inventory.colChange')}</TableHead>
+                                        <TableHead className="text-[10px] uppercase font-bold py-2">Balance</TableHead>
+                                        <TableHead className="text-[10px] uppercase font-bold py-2">{t('inventory.colUser')}</TableHead>
+                                        <TableHead className="text-[10px] uppercase font-bold py-2 text-right px-4">{t('common.date')}</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {isLogsLoading ? (
+                                        <TableRow>
+                                            <TableCell colSpan={5} className="h-24 text-center">
+                                                <Loader2 className="h-4 w-4 animate-spin mx-auto text-muted-foreground" />
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : filteredLogs.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={5} className="h-24 text-center text-xs text-muted-foreground">
+                                                {t('inventory.noLogsFound')}
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : (
+                                        filteredLogs.map((tx: any) => {
+                                            const isAddition = tx.type === 'in' || tx.type === 'return' || (tx.type === 'adjustment' && tx.quantity > 0);
+                                            
+                                            return (
+                                                <TableRow 
+                                                    key={tx.id} 
+                                                    className="hover:bg-muted/40 cursor-pointer transition-colors group"
+                                                    onClick={() => {
+                                                        setSelectedTx(tx);
+                                                        setIsTxModalOpen(true);
+                                                    }}
+                                                >
+                                                    <TableCell className="px-4">
+                                                        <div className="flex flex-col">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-xs font-medium capitalize">
+                                                                    {tx.type === 'in' ? 'Stock In' : tx.type === 'out' ? 'Stock Out' : tx.type === 'return' ? 'Return' : tx.type === 'edit' ? 'Product Edit' : 'Adjustment'}
+                                                                </span>
+                                                                {tx._isPending && (
+                                                                    <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200 text-[9px] py-0 px-1.5 h-4">
+                                                                        Syncing...
+                                                                    </Badge>
+                                                                )}
+                                                            </div>
+                                                            {tx.notes && (
+                                                                <span className="text-[10px] text-muted-foreground">{tx.notes}</span>
+                                                            )}
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {tx.type === 'edit' ? (
+                                                            <div className="flex items-center gap-1 font-medium text-xs text-blue-600 dark:text-blue-400">
+                                                                <span>Modified</span>
+                                                            </div>
+                                                        ) : (
+                                                            <div className={cn(
+                                                                "flex items-center gap-1 font-bold text-sm",
+                                                                isAddition ? "text-green-600" : "text-red-600"
+                                                            )}>
+                                                                {isAddition ? (
+                                                                    <ArrowDownLeft className="h-4 w-4" />
+                                                                ) : (
+                                                                    <ArrowUpRight className="h-4 w-4" />
+                                                                )}
+                                                                <span>{Math.abs(tx.quantity)}</span>
+                                                            </div>
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="font-medium text-sm flex flex-col gap-1">
+                                                            <div className="flex items-center gap-1">
+                                                                <span className={tx.computedBalance < 0 ? "text-red-500 font-bold" : ""}>
+                                                                    {tx.type === 'edit' ? '-' : (tx.computedBalance !== undefined ? tx.computedBalance : '-')}
+                                                                </span>
+                                                                {tx.anomalies && tx.anomalies.length > 0 && (
+                                                                    <TooltipProvider>
+                                                                        <Tooltip>
+                                                                            <TooltipTrigger asChild>
+                                                                                <AlertCircle className="h-3.5 w-3.5 text-amber-500 cursor-help" />
+                                                                            </TooltipTrigger>
+                                                                            <TooltipContent className="bg-amber-50 border-amber-200 text-amber-900 shadow-sm max-w-[200px]">
+                                                                                <ul className="list-disc pl-3 text-xs space-y-0.5">
+                                                                                    {tx.anomalies.map((a: string, i: number) => (
+                                                                                        <li key={i}>{a}</li>
+                                                                                    ))}
+                                                                                </ul>
+                                                                            </TooltipContent>
+                                                                        </Tooltip>
+                                                                    </TooltipProvider>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="flex flex-col">
+                                                            <span className="text-xs font-medium text-foreground/90">
+                                                                {resolveUserName(tx.cashierName || tx.userName || tx.actorName || tx.createdBy)}
+                                                            </span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-right px-4">
+                                                        <div className="flex flex-col items-end">
+                                                            <span className="text-xs font-semibold text-foreground">
+                                                                {tx.date ? (() => {
+                                                                    const d = typeof tx.date?.toDate === 'function' ? tx.date.toDate() : (tx.date instanceof Date ? tx.date : new Date(tx.date));
+                                                                    return !isNaN(d.getTime()) ? format(d, 'dd MMM yyyy, HH:mm') : '-';
+                                                                })() : t('inventory.justNow')}
+                                                            </span>
+                                                            {tx.date && (
+                                                                <span className="text-[10px] text-muted-foreground">
+                                                                    {(() => {
+                                                                        const d = typeof tx.date?.toDate === 'function' ? tx.date.toDate() : (tx.date instanceof Date ? tx.date : new Date(tx.date));
+                                                                        return !isNaN(d.getTime()) ? `(${formatDistanceToNow(d, { addSuffix: true })})` : '';
+                                                                    })()}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </CardContent>
+                    </Card>
+                )}
+                </TabsContent>
+                </Tabs>
+                <div className="flex flex-wrap items-center justify-center gap-2 w-full px-4 md:hidden">
+                    <Button variant="outline" size="lg" type="button" onClick={() => router.push('/inventory')}>
+                        {t('common.discard')}
+                    </Button>
+                    {canManageProduct && (
+                        <Button
+                            variant="outline"
+                            size="lg"
+                            type="button"
+                            onClick={handleToggleArchive}
+                            disabled={isSaving}
+                            className={product?.isArchived 
+                                ? "border-emerald-500/50 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/15 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors" 
+                                : "border-amber-500/50 text-amber-600 dark:text-amber-400 hover:bg-amber-500/15 hover:text-amber-700 dark:hover:text-amber-300 transition-colors"}
+                        >
+                            {product?.isArchived ? (
+                                <>
+                                    <ArchiveRestore className="mr-2 h-4 w-4" />
+                                    Restore
+                                </>
+                            ) : (
+                                <>
+                                    <Archive className="mr-2 h-4 w-4" />
+                                    Archive
+                                </>
+                            )}
+                        </Button>
+                    )}
+                    {canManageProduct && (
+                        <Button
+                            variant="destructive"
+                            size="lg"
+                            type="button"
+                            onClick={() => setIsDeleteDialogOpen(true)}
+                            disabled={isSaving || isReadOnly}
+                            title={isReadOnly ? 'Plan expired (Read-only mode)' : undefined}
+                            className="disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            {t('common.delete')}
+                        </Button>
+                    )}
+                    {canManageProduct && (
+                        <Button
+                            size="lg"
+                            type="submit"
+                            disabled={isSaving || isReadOnly}
+                            title={isReadOnly ? 'Plan expired (Read-only mode)' : undefined}
+                            className="disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                            {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            {categoryType === 'service' ? t('inventory.saveService') : t('inventory.saveProduct')}
+                        </Button>
+                    )}
+                </div>
+            </form>
+            <BarcodeScanner
+                isOpen={isScannerOpen}
+                onClose={() => setIsScannerOpen(false)}
+                onScan={(code) => {
+                    form.setValue('sku', code);
+                    setIsScannerOpen(false);
+                    toast({
+                        title: t('inventory.barcodeScannedTitle'),
+                        description: t('inventory.barcodeScannedBody', { code }),
+                    });
+                }}
+            />
+            <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>{t('inventory.deleteConfirmTitle')}</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {t('inventory.deleteOneConfirmBody', { name: product.name })}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDelete} className="bg-destructive hover:bg-destructive/90">
+                            {t('inventory.deleteProductButton')}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+            <UpgradeOverlay open={showUpgradeOverlay} onOpenChange={setShowUpgradeOverlay} />
+            <TransactionDetailsModal
+                open={isTxModalOpen}
+                onOpenChange={setIsTxModalOpen}
+                transaction={selectedTx ? { ...selectedTx, productName: product?.name } : null}
+                users={users}
+                userMap={userMap}
+                resolveName={resolveUserName}
+            />
+        </Form>
+    );
+}
+
+export default function EditProductPage() {
+    return (
+        <Suspense fallback={<EditProductSkeleton />}>
+            <EditProductContent />
+        </Suspense>
+    );
+}

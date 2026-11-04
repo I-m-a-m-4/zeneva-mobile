@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+
+# Expo
+.expo/
+dist/
+web-build/
+
+# Native & Keystores
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.keystore
+*.mobileprovision
+android-keystore-backup.json
+trigger-keystore
+zeneva.keystore
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.recorder
+
+# Temporary & Build Artifacts
+.tmp-*
+.tmp-bd/
+.tmp-smoke/
+marketing-out/
+tsc-errors.txt
+tsconfig.aicheck.tsbuildinfo
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# OS files
+.DS_Store
+Thumbs.db
+*.lnk

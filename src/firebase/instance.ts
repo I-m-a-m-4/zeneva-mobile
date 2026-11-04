@@ -16,6 +16,9 @@ let auth: Auth;
 let firestore: Firestore;
 
 if (!getApps().length) {
+  if (!firebaseConfig.apiKey) {
+    console.warn('[Firebase] Warning: apiKey is undefined in firebaseConfig! Check EXPO_PUBLIC_FIREBASE_API_KEY in .env');
+  }
   const configToUse = firebaseConfig.apiKey ? firebaseConfig : { ...firebaseConfig, apiKey: 'dummy-key-for-build' };
   firebaseApp = initializeApp(configToUse);
 } else {

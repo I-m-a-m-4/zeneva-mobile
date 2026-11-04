@@ -6,3 +6,4 @@ const config = getDefaultConfig(__dirname);
 delete process.env.EXPO_ROUTER_APP_ROOT;
 
 module.exports = config;
+

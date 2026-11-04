@@ -8,6 +8,7 @@ import {
   type ViewStyle,
   Platform,
 } from 'react-native';
+import { fonts } from '@/theme/typography';
 
 export interface GlowInputProps extends TextInputProps {
   label?: string;
@@ -80,6 +81,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
+    fontFamily: fonts.medium,
     fontWeight: '500',
     color: '#0F172A',
     marginBottom: 6,
@@ -127,6 +129,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: '100%',
     fontSize: 14,
+    fontFamily: fonts.regular,
     color: '#0F172A',
     padding: 0,
   },
@@ -142,6 +145,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 12,
+    fontFamily: fonts.medium,
     color: '#EF4444',
     marginTop: 4,
     marginLeft: 2,

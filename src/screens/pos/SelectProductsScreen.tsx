@@ -10,6 +10,7 @@ import {
   Alert,
   RefreshControl,
   Image,
+  ScrollView,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -21,6 +22,7 @@ import type { Product } from '@/types';
 import { smartSearchMatch } from '@/lib/utils';
 import { GlowInput } from '@/components/ui/GlowInput';
 import { GlowButton } from '@/components/ui/GlowButton';
+import { fonts } from '@/theme/typography';
 import {
   Search,
   Camera,
@@ -35,6 +37,8 @@ import {
   Pill,
   Coffee,
   ArrowRight,
+  ChevronUp,
+  Trash2,
 } from 'lucide-react-native';
 
 function renderCategoryIcon(category?: string, size = 16) {
@@ -78,6 +82,7 @@ export function SelectProductsScreen() {
   const [search, setSearch] = useState('');
   const [showScanner, setShowScanner] = useState(false);
   const [showHeldSalesModal, setShowHeldSalesModal] = useState(false);
+  const [showCartDrawer, setShowCartDrawer] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [manualCode, setManualCode] = useState('');
 
@@ -128,6 +133,10 @@ export function SelectProductsScreen() {
 
     return (
       <View style={styles.productCard}>
+        {/* Corner Accent Brackets for Signature Zeneva Card styling */}
+        <View style={styles.cornerTopRight} />
+        <View style={styles.cornerBottomLeft} />
+
         {/* Product Media Header */}
         <View style={styles.imageContainer}>
           {item.imageUrl ? (
@@ -162,9 +171,14 @@ export function SelectProductsScreen() {
           {item.sku ? <Text style={styles.productSku}>SKU: {item.sku}</Text> : null}
 
           <View style={styles.productFooter}>
-            <Text style={styles.productPrice}>
-              {currency} {item.price.toLocaleString()}
-            </Text>
+            <View>
+              <Text style={styles.productPrice}>
+                {currency} {item.price.toLocaleString()}
+              </Text>
+              {item.baseUnit ? (
+                <Text style={styles.productUnit}>per {item.baseUnit}</Text>
+              ) : null}
+            </View>
 
             {currentQty > 0 ? (
               <View style={styles.qtyControls}>
@@ -189,7 +203,7 @@ export function SelectProductsScreen() {
                 disabled={isOutOfStock}
                 activeOpacity={0.8}
               >
-                <Plus size={16} color="#FFFFFF" />
+                <Plus size={15} color="#FFFFFF" />
                 <Text style={styles.addButtonText}>Add</Text>
               </TouchableOpacity>
             )}
@@ -303,7 +317,11 @@ export function SelectProductsScreen() {
       {/* Bottom Cart Action Bar */}
       {cart.length > 0 ? (
         <View style={styles.cartFooter}>
-          <View style={styles.cartSummary}>
+          <TouchableOpacity
+            style={styles.cartSummary}
+            onPress={() => setShowCartDrawer(true)}
+            activeOpacity={0.8}
+          >
             <View style={styles.cartIconWrapper}>
               <ShoppingCart size={22} color="#F47125" />
               <View style={styles.cartBadge}>
@@ -311,14 +329,17 @@ export function SelectProductsScreen() {
               </View>
             </View>
             <View>
-              <Text style={styles.cartItemsCountText}>
-                {cartItemCount} {cartItemCount === 1 ? 'item' : 'items'}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={styles.cartItemsCountText}>
+                  {cartItemCount} {cartItemCount === 1 ? 'item' : 'items'}
+                </Text>
+                <ChevronUp size={14} color="#64748B" />
+              </View>
               <Text style={styles.cartTotalText}>
                 {currency} {cartTotal.toLocaleString()}
               </Text>
             </View>
-          </View>
+          </TouchableOpacity>
 
           <View style={styles.cartActions}>
             <TouchableOpacity
@@ -342,6 +363,74 @@ export function SelectProductsScreen() {
           </View>
         </View>
       ) : null}
+
+      {/* Cart Quick Review Drawer */}
+      <Modal visible={showCartDrawer} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.cartDrawerCard}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <ShoppingCart size={20} color="#F47125" />
+                <Text style={styles.modalTitle}>Cart Items ({cartItemCount})</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowCartDrawer(false)}>
+                <X size={22} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ maxHeight: 320, paddingHorizontal: 16 }}>
+              {cart.map((c) => (
+                <View key={c.product.id} style={styles.cartDrawerItem}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cartDrawerItemName}>{c.product.name}</Text>
+                    <Text style={styles.cartDrawerItemSub}>
+                      {currency} {c.product.price.toLocaleString()} × {c.quantity} = {currency} {(c.product.price * c.quantity).toLocaleString()}
+                    </Text>
+                  </View>
+                  <View style={styles.qtyControls}>
+                    <TouchableOpacity
+                      style={styles.qtyButton}
+                      onPress={() => removeFromCart(c.product.id)}
+                    >
+                      {c.quantity === 1 ? (
+                        <Trash2 size={13} color="#DC2626" />
+                      ) : (
+                        <Minus size={13} color="#0F172A" />
+                      )}
+                    </TouchableOpacity>
+                    <Text style={styles.qtyText}>{c.quantity}</Text>
+                    <TouchableOpacity
+                      style={[styles.qtyButton, styles.qtyButtonAdd]}
+                      onPress={() => addToCart(c.product)}
+                    >
+                      <Plus size={13} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+
+            <View style={styles.cartDrawerFooter}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+                <Text style={styles.drawerTotalLabel}>Total Amount:</Text>
+                <Text style={styles.drawerTotalVal}>
+                  {currency} {cartTotal.toLocaleString()}
+                </Text>
+              </View>
+              <GlowButton
+                title="Proceed to Customer"
+                icon={<ArrowRight size={16} color="#FFFFFF" />}
+                onPress={() => {
+                  setShowCartDrawer(false);
+                  navigation.navigate('CustomerSelect');
+                }}
+                variant="primary"
+                size="default"
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Held Sales Modal */}
       <Modal visible={showHeldSalesModal} animationType="slide" transparent>
@@ -380,21 +469,18 @@ export function SelectProductsScreen() {
         </View>
       </Modal>
 
-      {/* Barcode Camera Modal with GlowInput */}
+      {/* Barcode Manual Entry Modal */}
       <Modal visible={showScanner} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
+          <View style={styles.scannerModalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Scan Product Barcode</Text>
+              <Text style={styles.modalTitle}>Enter Barcode / SKU</Text>
               <TouchableOpacity onPress={() => setShowScanner(false)}>
                 <X size={22} color="#64748B" />
               </TouchableOpacity>
             </View>
-            <Text style={styles.scannerPrompt}>
-              Aim camera at 1D/2D barcode or enter SKU manually:
-            </Text>
             <GlowInput
-              placeholder="Enter barcode or SKU..."
+              placeholder="e.g. 893127810"
               value={manualCode}
               onChangeText={setManualCode}
               onSubmitEditing={() => handleBarcodeScanned(manualCode)}
@@ -455,6 +541,7 @@ const styles = StyleSheet.create({
   heldCountText: {
     color: '#FFFFFF',
     fontSize: 10,
+    fontFamily: fonts.bold,
     fontWeight: '700',
   },
   categoriesContainer: {
@@ -483,10 +570,12 @@ const styles = StyleSheet.create({
   categoryPillText: {
     fontSize: 13,
     color: '#64748B',
+    fontFamily: fonts.medium,
     fontWeight: '500',
   },
   categoryPillTextSelected: {
     color: '#F47125',
+    fontFamily: fonts.bold,
     fontWeight: '600',
   },
   centered: {
@@ -499,9 +588,11 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: 14,
     color: '#64748B',
+    fontFamily: fonts.regular,
   },
   emptyTitle: {
     fontSize: 16,
+    fontFamily: fonts.headingBold,
     fontWeight: '600',
     color: '#0F172A',
     marginTop: 12,
@@ -510,11 +601,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#64748B',
     textAlign: 'center',
+    fontFamily: fonts.regular,
     marginTop: 4,
   },
   productList: {
     padding: 10,
-    paddingBottom: 90,
+    paddingBottom: 95,
   },
   productCard: {
     flex: 1,
@@ -524,6 +616,29 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
     overflow: 'hidden',
+    position: 'relative',
+  },
+  cornerTopRight: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    width: 6,
+    height: 6,
+    borderTopWidth: 1.5,
+    borderRightWidth: 1.5,
+    borderColor: '#CBD5E1',
+    zIndex: 10,
+  },
+  cornerBottomLeft: {
+    position: 'absolute',
+    bottom: 5,
+    left: 5,
+    width: 6,
+    height: 6,
+    borderBottomWidth: 1.5,
+    borderLeftWidth: 1.5,
+    borderColor: '#CBD5E1',
+    zIndex: 10,
   },
   imageContainer: {
     width: '100%',
@@ -558,6 +673,7 @@ const styles = StyleSheet.create({
   serviceBadgeText: {
     fontSize: 10,
     color: '#3B82F6',
+    fontFamily: fonts.bold,
     fontWeight: '600',
   },
   outOfStockBadge: {
@@ -574,6 +690,7 @@ const styles = StyleSheet.create({
   outOfStockBadgeText: {
     fontSize: 10,
     color: '#EF4444',
+    fontFamily: fonts.bold,
     fontWeight: '600',
   },
   cardContent: {
@@ -583,6 +700,7 @@ const styles = StyleSheet.create({
   },
   productName: {
     fontSize: 13,
+    fontFamily: fonts.medium,
     fontWeight: '600',
     color: '#0F172A',
     lineHeight: 18,
@@ -591,6 +709,7 @@ const styles = StyleSheet.create({
   productSku: {
     fontSize: 11,
     color: '#94A3B8',
+    fontFamily: fonts.regular,
     marginTop: 2,
   },
   productFooter: {
@@ -601,8 +720,14 @@ const styles = StyleSheet.create({
   },
   productPrice: {
     fontSize: 13,
+    fontFamily: fonts.headingBold,
     fontWeight: '700',
     color: '#0F172A',
+  },
+  productUnit: {
+    fontSize: 10,
+    color: '#94A3B8',
+    fontFamily: fonts.regular,
   },
   addButton: {
     flexDirection: 'row',
@@ -619,6 +744,7 @@ const styles = StyleSheet.create({
   addButtonText: {
     color: '#FFFFFF',
     fontSize: 12,
+    fontFamily: fonts.bold,
     fontWeight: '600',
   },
   qtyControls: {
@@ -640,6 +766,7 @@ const styles = StyleSheet.create({
   },
   qtyText: {
     fontSize: 13,
+    fontFamily: fonts.bold,
     fontWeight: '600',
     color: '#0F172A',
     paddingHorizontal: 8,
@@ -657,6 +784,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 8,
   },
   cartSummary: {
     flexDirection: 'row',
@@ -677,25 +809,29 @@ const styles = StyleSheet.create({
     top: -4,
     right: -4,
     backgroundColor: '#F47125',
-    borderRadius: 8,
-    width: 16,
-    height: 16,
+    borderRadius: 9,
+    width: 18,
+    height: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cartBadgeText: {
     color: '#FFFFFF',
-    fontSize: 9,
+    fontSize: 10,
+    fontFamily: fonts.bold,
     fontWeight: '700',
   },
   cartItemsCountText: {
     fontSize: 11,
     color: '#64748B',
+    fontFamily: fonts.medium,
+    fontWeight: '500',
   },
   cartTotalText: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 15,
     color: '#0F172A',
+    fontFamily: fonts.headingBold,
+    fontWeight: '700',
   },
   cartActions: {
     flexDirection: 'row',
@@ -705,23 +841,73 @@ const styles = StyleSheet.create({
   holdButton: {
     width: 36,
     height: 36,
-    borderRadius: 8,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.4)',
+    backgroundColor: 'rgba(0,0,0,0.45)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 16,
   },
   modalCard: {
     width: '100%',
-    maxWidth: 400,
+    maxHeight: '80%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+  },
+  cartDrawerCard: {
+    width: '100%',
+    maxHeight: '85%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  cartDrawerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  cartDrawerItemName: {
+    fontSize: 13,
+    fontFamily: fonts.medium,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+  cartDrawerItemSub: {
+    fontSize: 11,
+    color: '#64748B',
+    fontFamily: fonts.regular,
+    marginTop: 2,
+  },
+  cartDrawerFooter: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    backgroundColor: '#FAFAF9',
+  },
+  drawerTotalLabel: {
+    fontSize: 13,
+    color: '#64748B',
+    fontFamily: fonts.medium,
+  },
+  drawerTotalVal: {
+    fontSize: 16,
+    fontFamily: fonts.headingBold,
+    color: '#0F172A',
+    fontWeight: '700',
+  },
+  scannerModalCard: {
+    width: '90%',
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
@@ -731,9 +917,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 16,
+    fontFamily: fonts.headingBold,
     fontWeight: '700',
     color: '#0F172A',
   },
@@ -741,36 +930,36 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 8,
   },
   heldItemTitle: {
     fontSize: 14,
+    fontFamily: fonts.medium,
     fontWeight: '600',
     color: '#0F172A',
   },
   heldItemSubtitle: {
     fontSize: 12,
     color: '#64748B',
+    fontFamily: fonts.regular,
     marginTop: 2,
   },
   resumeButton: {
     backgroundColor: '#FFF7ED',
     borderWidth: 1,
-    borderColor: '#F47125',
+    borderColor: '#FED7AA',
     borderRadius: 6,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
   resumeButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
     color: '#F47125',
-  },
-  scannerPrompt: {
-    fontSize: 14,
-    color: '#64748B',
-    marginBottom: 12,
+    fontSize: 12,
+    fontFamily: fonts.bold,
+    fontWeight: '600',
   },
 });

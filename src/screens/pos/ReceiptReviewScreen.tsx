@@ -15,6 +15,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { PosStackParamList } from '@/navigation/types';
 import { useAuth } from '@/context/AuthContext';
 import { useBranch } from '@/context/branch-context';
+import { fonts } from '@/theme/typography';
 import {
   CheckCircle,
   Share2,
@@ -287,6 +288,7 @@ const styles = StyleSheet.create({
   },
   successTitle: {
     fontSize: 22,
+    fontFamily: fonts.headingBold,
     fontWeight: '800',
     color: '#0F172A',
     marginTop: 8,
@@ -294,6 +296,7 @@ const styles = StyleSheet.create({
   successSubtitle: {
     fontSize: 13,
     color: '#64748B',
+    fontFamily: fonts.regular,
     marginTop: 4,
     textAlign: 'center',
   },
@@ -314,14 +317,16 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   storeTitle: {
-    fontSize: 18,
-    fontWeight: '900',
+    fontSize: 20,
+    fontFamily: fonts.nexaBold,
+    fontWeight: '800',
     color: '#0F172A',
     letterSpacing: 0.5,
   },
   storeSubtitle: {
     fontSize: 13,
     color: '#64748B',
+    fontFamily: fonts.regular,
     marginTop: 2,
   },
   receiptIdText: {
@@ -350,9 +355,11 @@ const styles = StyleSheet.create({
   infoLabel: {
     fontSize: 13,
     color: '#64748B',
+    fontFamily: fonts.regular,
   },
   infoValue: {
     fontSize: 13,
+    fontFamily: fonts.medium,
     fontWeight: '600',
     color: '#0F172A',
   },
@@ -370,16 +377,19 @@ const styles = StyleSheet.create({
   },
   itemName: {
     fontSize: 14,
+    fontFamily: fonts.medium,
     fontWeight: '700',
     color: '#0F172A',
   },
   itemQtyPrice: {
     fontSize: 12,
     color: '#64748B',
+    fontFamily: fonts.regular,
     marginTop: 2,
   },
   itemSubtotal: {
     fontSize: 14,
+    fontFamily: fonts.headingBold,
     fontWeight: '700',
     color: '#0F172A',
   },
@@ -391,9 +401,11 @@ const styles = StyleSheet.create({
   totalLabel: {
     fontSize: 13,
     color: '#64748B',
+    fontFamily: fonts.regular,
   },
   totalVal: {
     fontSize: 13,
+    fontFamily: fonts.medium,
     fontWeight: '600',
     color: '#0F172A',
   },
@@ -404,12 +416,14 @@ const styles = StyleSheet.create({
     borderTopColor: '#0F172A',
   },
   grandTotalLabel: {
-    fontSize: 16,
+    fontSize: 15,
+    fontFamily: fonts.bold,
     fontWeight: '900',
     color: '#0F172A',
   },
   grandTotalVal: {
     fontSize: 18,
+    fontFamily: fonts.headingBold,
     fontWeight: '900',
     color: '#F47125',
   },
@@ -419,12 +433,14 @@ const styles = StyleSheet.create({
   },
   footerThanks: {
     fontSize: 13,
+    fontFamily: fonts.bold,
     fontWeight: '600',
     color: '#0F172A',
   },
   footerPowered: {
     fontSize: 11,
     color: '#94A3B8',
+    fontFamily: fonts.regular,
     marginTop: 2,
   },
   actionButtonsRow: {
@@ -446,6 +462,7 @@ const styles = StyleSheet.create({
   },
   actionButtonText: {
     fontSize: 13,
+    fontFamily: fonts.bold,
     fontWeight: '700',
     color: '#0F172A',
   },
@@ -474,8 +491,9 @@ const styles = StyleSheet.create({
   },
   newSaleButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 15,
+    fontFamily: fonts.bold,
+    fontWeight: '700',
   },
   errorContainer: {
     flex: 1,

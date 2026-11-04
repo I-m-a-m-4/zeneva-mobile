@@ -44,6 +44,8 @@ import {
   Settings,
 } from 'lucide-react-native';
 
+import { fonts } from '@/theme/typography';
+
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
@@ -58,7 +60,7 @@ function PosNavigator() {
       screenOptions={{
         headerStyle: { backgroundColor: '#FFFFFF' },
         headerTintColor: '#0F172A',
-        headerTitleStyle: { fontWeight: '700' },
+        headerTitleStyle: { fontFamily: fonts.headingBold, fontSize: 17, fontWeight: '700' },
         headerShadowVisible: false,
       }}
     >
@@ -92,7 +94,7 @@ function InventoryNavigator() {
       screenOptions={{
         headerStyle: { backgroundColor: '#FFFFFF' },
         headerTintColor: '#0F172A',
-        headerTitleStyle: { fontWeight: '700' },
+        headerTitleStyle: { fontFamily: fonts.headingBold, fontSize: 17, fontWeight: '700' },
         headerShadowVisible: false,
       }}
     >
@@ -121,7 +123,7 @@ function CustomersNavigator() {
       screenOptions={{
         headerStyle: { backgroundColor: '#FFFFFF' },
         headerTintColor: '#0F172A',
-        headerTitleStyle: { fontWeight: '700' },
+        headerTitleStyle: { fontFamily: fonts.headingBold, fontSize: 17, fontWeight: '700' },
         headerShadowVisible: false,
       }}
     >
@@ -145,7 +147,7 @@ function AdminNavigator() {
       screenOptions={{
         headerStyle: { backgroundColor: '#FFFFFF' },
         headerTintColor: '#0F172A',
-        headerTitleStyle: { fontWeight: '700' },
+        headerTitleStyle: { fontFamily: fonts.headingBold, fontSize: 17, fontWeight: '700' },
         headerShadowVisible: false,
       }}
     >
@@ -178,11 +180,12 @@ function MainTabNavigator() {
         },
         tabBarLabelStyle: {
           fontSize: 11,
+          fontFamily: fonts.medium,
           fontWeight: '600',
         },
         headerStyle: { backgroundColor: '#FFFFFF' },
         headerTintColor: '#0F172A',
-        headerTitleStyle: { fontWeight: '700' },
+        headerTitleStyle: { fontFamily: fonts.headingBold, fontSize: 17, fontWeight: '700' },
         headerShadowVisible: false,
       }}
     >

@@ -15,6 +15,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useI18n } from '@/context/i18n-context';
 import { GlowInput } from '@/components/ui/GlowInput';
 import { GlowButton } from '@/components/ui/GlowButton';
+import { fonts } from '@/theme/typography';
 import {
   Banknote,
   CreditCard,
@@ -24,6 +25,7 @@ import {
   Coins,
   CheckCircle2,
   FileText,
+  ArrowRight,
 } from 'lucide-react-native';
 
 export function PaymentScreen() {
@@ -86,10 +88,10 @@ export function PaymentScreen() {
   };
 
   const methods: { id: PaymentMethod; label: string; desc: string; icon: any }[] = [
-    { id: 'cash', label: 'Cash', desc: 'Physical bills & coins', icon: Banknote },
-    { id: 'card', label: 'Card / POS', desc: 'Debit / credit terminal', icon: CreditCard },
-    { id: 'bank_transfer', label: 'Bank Transfer', desc: 'Direct wire / instant pay', icon: Building2 },
-    { id: 'store_credit', label: 'Debt / Ledger', desc: 'Account credit balance', icon: BookOpen },
+    { id: 'cash', label: 'Cash', desc: 'Physical currency', icon: Banknote },
+    { id: 'card', label: 'Card / POS', desc: 'Debit / credit card', icon: CreditCard },
+    { id: 'bank_transfer', label: 'Bank Transfer', desc: 'Instant bank transfer', icon: Building2 },
+    { id: 'store_credit', label: 'Debt / Invoice', desc: 'Customer debt ledger', icon: BookOpen },
   ];
 
   return (
@@ -137,6 +139,36 @@ export function PaymentScreen() {
             );
           })}
         </View>
+
+        {/* Bank Transfer Details Alert (Matching web PaymentPage) */}
+        {paymentMethod === 'bank_transfer' ? (
+          <View style={styles.terminalCard}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <Building2 size={18} color="#10B981" />
+              <Text style={styles.terminalTitle}>TERMINAL DIRECT ACCOUNT</Text>
+              <View style={styles.activePill}><Text style={styles.activePillText}>ACTIVE</Text></View>
+            </View>
+            <Text style={styles.terminalDesc}>Instruct customer to transfer exact amount to:</Text>
+            <View style={styles.terminalDetails}>
+              <Text style={styles.terminalDetailText}>Bank: <Text style={{ fontFamily: fonts.bold, color: '#0F172A' }}>{(business?.settings as any)?.terminalBankName || 'Wema Bank'}</Text></Text>
+              <Text style={styles.terminalDetailText}>Account No: <Text style={{ fontFamily: fonts.bold, color: '#0F172A' }}>{(business?.settings as any)?.terminalAccountNumber || '0123456789'}</Text></Text>
+              <Text style={styles.terminalDetailText}>Account Name: <Text style={{ fontFamily: fonts.bold, color: '#0F172A' }}>{(business?.settings as any)?.terminalAccountName || `Zeneva - ${business?.name || 'Retail'}`}</Text></Text>
+            </View>
+          </View>
+        ) : null}
+
+        {/* Invoice / Debt Details Alert */}
+        {paymentMethod === 'store_credit' ? (
+          <View style={styles.invoiceCard}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <BookOpen size={18} color="#2563EB" />
+              <Text style={styles.invoiceTitle}>Customer Debt Ledger</Text>
+            </View>
+            <Text style={styles.invoiceDesc}>
+              This sale total will be booked directly to {selectedCustomer?.name || 'the customer'}&apos;s credit ledger.
+            </Text>
+          </View>
+        ) : null}
 
         {/* Cash Tender Calculation */}
         {paymentMethod === 'cash' ? (
@@ -259,14 +291,16 @@ export function PaymentScreen() {
               {currency} {cartSubtotal.toLocaleString()}
             </Text>
           </View>
+
           {cartDiscount > 0 ? (
             <View style={styles.summaryRow}>
-              <Text style={[styles.summaryLabel, { color: '#EF4444' }]}>Discount</Text>
-              <Text style={[styles.summaryValue, { color: '#EF4444' }]}>
+              <Text style={styles.discountLabel}>Applied Discount</Text>
+              <Text style={styles.discountValue}>
                 -{currency} {cartDiscount.toLocaleString()}
               </Text>
             </View>
           ) : null}
+
           {cartTax > 0 ? (
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Tax</Text>
@@ -275,26 +309,29 @@ export function PaymentScreen() {
               </Text>
             </View>
           ) : null}
-          <View style={styles.summaryDivider} />
+
+          <View style={styles.divider} />
+
           <View style={styles.summaryRow}>
-            <Text style={styles.totalSummaryLabel}>Final Amount</Text>
-            <Text style={styles.totalSummaryValue}>
+            <Text style={styles.grandTotalLabel}>Net Total Payable</Text>
+            <Text style={styles.grandTotalValue}>
               {currency} {cartTotal.toLocaleString()}
             </Text>
           </View>
         </View>
+      </ScrollView>
 
-        {/* Complete Payment Button with button-glow */}
+      {/* Floating Action Button */}
+      <View style={styles.floatingActionFooter}>
         <GlowButton
-          title={`Complete Payment • ${currency} ${cartTotal.toLocaleString()}`}
-          icon={<CheckCircle2 size={18} color="#FFFFFF" />}
+          title={isProcessing ? 'Recording Sale...' : `Complete Sale • ${currency} ${cartTotal.toLocaleString()}`}
+          icon={<ArrowRight size={18} color="#FFFFFF" />}
           onPress={handleCompletePayment}
           isLoading={isProcessing}
           variant="primary"
           size="lg"
-          style={{ marginTop: 20 }}
         />
-      </ScrollView>
+      </View>
     </View>
   );
 }
@@ -306,49 +343,55 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 40,
+    paddingBottom: 90,
   },
   totalHeaderCard: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    backgroundColor: '#0F172A',
     borderRadius: 16,
     padding: 20,
     alignItems: 'center',
     marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 4,
   },
   totalLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#64748B',
-    letterSpacing: 1,
+    fontSize: 11,
+    color: '#94A3B8',
+    fontFamily: fonts.bold,
+    letterSpacing: 1.2,
+    marginBottom: 4,
   },
   totalAmountText: {
-    fontSize: 32,
+    fontSize: 30,
+    fontFamily: fonts.headingBold,
     fontWeight: '800',
-    color: '#0F172A',
-    marginVertical: 6,
+    color: '#FFFFFF',
   },
   customerTag: {
-    backgroundColor: '#FFF7ED',
-    borderWidth: 1,
-    borderColor: '#FED7AA',
-    borderRadius: 6,
+    marginTop: 10,
+    backgroundColor: 'rgba(244, 113, 37, 0.2)',
     paddingHorizontal: 10,
     paddingVertical: 4,
+    borderRadius: 6,
   },
   customerTagText: {
+    color: '#FED7AA',
     fontSize: 12,
-    fontWeight: '600',
-    color: '#F47125',
+    fontFamily: fonts.medium,
   },
   walkInText: {
+    color: '#64748B',
     fontSize: 12,
-    color: '#94A3B8',
+    fontFamily: fonts.regular,
+    marginTop: 6,
   },
   sectionTitle: {
     fontSize: 14,
-    fontWeight: '600',
+    fontFamily: fonts.headingBold,
+    fontWeight: '700',
     color: '#0F172A',
     marginBottom: 10,
   },
@@ -373,6 +416,7 @@ const styles = StyleSheet.create({
   },
   methodLabel: {
     fontSize: 13,
+    fontFamily: fonts.bold,
     fontWeight: '600',
     color: '#0F172A',
     marginTop: 8,
@@ -382,75 +426,142 @@ const styles = StyleSheet.create({
   },
   methodDesc: {
     fontSize: 10,
-    color: '#94A3B8',
-    textAlign: 'center',
+    color: '#64748B',
+    fontFamily: fonts.regular,
     marginTop: 2,
+    textAlign: 'center',
+  },
+  terminalCard: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+  },
+  terminalTitle: {
+    fontSize: 12,
+    fontFamily: fonts.headingBold,
+    fontWeight: '700',
+    color: '#065F46',
+  },
+  activePill: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  activePillText: {
+    fontSize: 9,
+    fontFamily: fonts.bold,
+    color: '#FFFFFF',
+  },
+  terminalDesc: {
+    fontSize: 12,
+    color: '#047857',
+    fontFamily: fonts.regular,
+    marginBottom: 6,
+  },
+  terminalDetails: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 10,
+    gap: 3,
+  },
+  terminalDetailText: {
+    fontSize: 12,
+    color: '#334155',
+    fontFamily: fonts.regular,
+  },
+  invoiceCard: {
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+  },
+  invoiceTitle: {
+    fontSize: 13,
+    fontFamily: fonts.headingBold,
+    fontWeight: '700',
+    color: '#1E40AF',
+  },
+  invoiceDesc: {
+    fontSize: 12,
+    color: '#1E40AF',
+    fontFamily: fonts.regular,
+    marginTop: 4,
   },
   cashTenderSection: {
     marginBottom: 20,
   },
   tenderInputContainer: {
-    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   currencyPrefix: {
     fontSize: 14,
-    fontWeight: '600',
+    fontFamily: fonts.bold,
     color: '#64748B',
   },
   exactButton: {
     backgroundColor: '#F1F5F9',
-    borderRadius: 4,
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     paddingVertical: 4,
+    borderRadius: 4,
   },
   exactButtonText: {
-    fontSize: 11,
-    fontWeight: '600',
+    fontSize: 12,
+    fontFamily: fonts.medium,
     color: '#0F172A',
   },
   quickBillsRow: {
     flexDirection: 'row',
-    gap: 6,
-    marginBottom: 12,
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 10,
   },
   billChip: {
-    flex: 1,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 6,
+    paddingHorizontal: 12,
     paddingVertical: 6,
-    alignItems: 'center',
+    borderRadius: 6,
   },
   billChipText: {
-    fontSize: 11,
-    fontWeight: '600',
+    fontSize: 12,
+    fontFamily: fonts.medium,
     color: '#0F172A',
   },
   changeDueCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
     borderRadius: 12,
-    padding: 14,
+    padding: 16,
+    marginTop: 12,
   },
   changeDueActive: {
-    borderColor: '#A7F3D0',
     backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
   },
   changeDueLabel: {
     fontSize: 10,
-    fontWeight: '600',
+    fontFamily: fonts.bold,
     color: '#64748B',
-    letterSpacing: 0.5,
+    letterSpacing: 0.8,
   },
   changeDueAmount: {
     fontSize: 20,
+    fontFamily: fonts.headingBold,
     fontWeight: '700',
-    color: '#10B981',
+    color: '#0F172A',
     marginTop: 2,
   },
   adjustmentSection: {
@@ -459,41 +570,44 @@ const styles = StyleSheet.create({
   adjustmentRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   toggleGroup: {
     flexDirection: 'row',
-    backgroundColor: '#F1F5F9',
     borderRadius: 8,
-    padding: 2,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+    height: 44,
   },
   typeToggle: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 6,
+    paddingHorizontal: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   typeToggleActive: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#0F172A',
   },
   typeToggleText: {
-    fontSize: 12,
+    fontSize: 13,
+    fontFamily: fonts.bold,
     color: '#64748B',
-    fontWeight: '500',
   },
   typeToggleTextActive: {
-    color: '#0F172A',
-    fontWeight: '700',
+    color: '#FFFFFF',
   },
   notesSection: {
-    marginBottom: 16,
+    marginBottom: 20,
   },
   summaryCard: {
     backgroundColor: '#FFFFFF',
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 12,
     padding: 16,
-    gap: 8,
+    gap: 10,
+    marginBottom: 20,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -503,25 +617,49 @@ const styles = StyleSheet.create({
   summaryLabel: {
     fontSize: 13,
     color: '#64748B',
+    fontFamily: fonts.regular,
   },
   summaryValue: {
     fontSize: 13,
-    fontWeight: '600',
+    fontFamily: fonts.medium,
     color: '#0F172A',
   },
-  summaryDivider: {
+  discountLabel: {
+    fontSize: 13,
+    color: '#DC2626',
+    fontFamily: fonts.regular,
+  },
+  discountValue: {
+    fontSize: 13,
+    fontFamily: fonts.bold,
+    color: '#DC2626',
+  },
+  divider: {
     height: 1,
     backgroundColor: '#E2E8F0',
     marginVertical: 4,
   },
-  totalSummaryLabel: {
+  grandTotalLabel: {
     fontSize: 15,
+    fontFamily: fonts.headingBold,
     fontWeight: '700',
     color: '#0F172A',
   },
-  totalSummaryValue: {
-    fontSize: 18,
+  grandTotalValue: {
+    fontSize: 17,
+    fontFamily: fonts.headingBold,
     fontWeight: '800',
     color: '#0F172A',
+  },
+  floatingActionFooter: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    padding: 16,
+    elevation: 8,
   },
 });

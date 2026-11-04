@@ -37,7 +37,8 @@
         {
           "cameraPermission": "Allow Zeneva to access your camera for barcode scanning."
         }
-      ]
+      ],
+      "expo-font"
     ]
   }
 }

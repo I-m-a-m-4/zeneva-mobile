@@ -9,6 +9,7 @@ import {
   RefreshControl,
   Modal,
   Alert,
+  Linking,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -18,6 +19,7 @@ import { useAuth } from '@/context/AuthContext';
 import type { Customer } from '@/types';
 import { GlowInput } from '@/components/ui/GlowInput';
 import { GlowButton } from '@/components/ui/GlowButton';
+import { fonts } from '@/theme/typography';
 import {
   Search,
   UserPlus,
@@ -28,6 +30,9 @@ import {
   X,
   CreditCard,
   DollarSign,
+  MessageCircle,
+  Award,
+  Users,
 } from 'lucide-react-native';
 
 export function CustomersDirectoryScreen() {
@@ -36,7 +41,7 @@ export function CustomersDirectoryScreen() {
   const { business } = useAuth();
 
   const [search, setSearch] = useState('');
-  const [filterMode, setFilterMode] = useState<'all' | 'debtors'>('all');
+  const [filterMode, setFilterMode] = useState<'all' | 'debtors' | 'vip'>('all');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
 
@@ -54,6 +59,26 @@ export function CustomersDirectoryScreen() {
     setIsRefreshing(false);
   };
 
+  // Aggregates
+  const stats = useMemo(() => {
+    let totalDebt = 0;
+    let debtorCount = 0;
+    let vipCount = 0;
+
+    customers.forEach((c) => {
+      const debt = c.debtBalance || 0;
+      if (debt > 0) {
+        totalDebt += debt;
+        debtorCount++;
+      }
+      if ((c.loyaltyPoints || 0) >= 50 || (c.totalSpent || 0) >= 100000) {
+        vipCount++;
+      }
+    });
+
+    return { totalDebt, debtorCount, vipCount, total: customers.length };
+  }, [customers]);
+
   const filtered = useMemo(() => {
     return customers.filter((c) => {
       const q = search.toLowerCase();
@@ -64,11 +89,27 @@ export function CustomersDirectoryScreen() {
         (c.email && c.email.toLowerCase().includes(q));
 
       const hasDebt = (c.debtBalance || 0) > 0;
-      const matchFilter = filterMode === 'all' || hasDebt;
+      const isVip = (c.loyaltyPoints || 0) >= 50 || (c.totalSpent || 0) >= 100000;
+
+      let matchFilter = true;
+      if (filterMode === 'debtors') matchFilter = hasDebt;
+      if (filterMode === 'vip') matchFilter = isVip;
 
       return matchSearch && matchFilter;
     });
   }, [customers, search, filterMode]);
+
+  const handleWhatsAppCustomer = (phoneNum: string, custName: string) => {
+    const cleanPhone = phoneNum.replace(/[^0-9]/g, '');
+    if (!cleanPhone) {
+      Alert.alert('No Phone', 'This customer does not have a valid phone number.');
+      return;
+    }
+    const message = encodeURIComponent(`Hello ${custName}, thank you for choosing ${business?.name || 'us'}!`);
+    Linking.openURL(`whatsapp://send?phone=${cleanPhone}&text=${message}`).catch(() => {
+      Alert.alert('WhatsApp Error', 'Could not open WhatsApp on this device.');
+    });
+  };
 
   const handleCreateCustomer = async () => {
     if (!name.trim()) {
@@ -98,66 +139,110 @@ export function CustomersDirectoryScreen() {
   const renderCustomer = ({ item }: { item: Customer }) => {
     const debt = item.debtBalance || 0;
     const hasDebt = debt > 0;
+    const isVip = (item.loyaltyPoints || 0) >= 50 || (item.totalSpent || 0) >= 100000;
 
     return (
-      <TouchableOpacity
-        style={styles.card}
-        onPress={() => navigation.navigate('CustomerLedger', { customer: item })}
-        activeOpacity={0.7}
-      >
-        <View style={styles.cardLeft}>
-          <View style={[styles.avatar, hasDebt && styles.avatarDebt]}>
-            <User size={22} color={hasDebt ? '#DC2626' : '#64748B'} />
+      <View style={styles.card}>
+        <View style={styles.cornerTopRight} />
+        <View style={styles.cornerBottomLeft} />
+
+        <View style={styles.cardHeader}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>
+              {item.name ? item.name.charAt(0).toUpperCase() : 'C'}
+            </Text>
           </View>
-          <View style={styles.info}>
-            <Text style={styles.name}>{item.name}</Text>
-            <View style={styles.contactRow}>
+
+          <View style={styles.cardHeaderText}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.customerName}>{item.name}</Text>
+              {isVip ? (
+                <View style={styles.vipBadge}>
+                  <Award size={10} color="#D97706" />
+                  <Text style={styles.vipBadgeText}>VIP</Text>
+                </View>
+              ) : null}
+            </View>
+
+            <View style={styles.metaRow}>
               {item.phone ? (
-                <Text style={styles.contactText}>{item.phone}</Text>
-              ) : item.email ? (
-                <Text style={styles.contactText}>{item.email}</Text>
-              ) : (
-                <Text style={styles.contactText}>No contact</Text>
-              )}
+                <View style={styles.metaItem}>
+                  <Phone size={12} color="#94A3B8" />
+                  <Text style={styles.metaText}>{item.phone}</Text>
+                </View>
+              ) : null}
+              {item.email ? (
+                <View style={styles.metaItem}>
+                  <Mail size={12} color="#94A3B8" />
+                  <Text style={styles.metaText}>{item.email}</Text>
+                </View>
+              ) : null}
             </View>
           </View>
         </View>
 
-        <View style={styles.cardRight}>
-          {hasDebt ? (
-            <View style={styles.debtTag}>
-              <Text style={styles.debtTagText}>
-                Debt: {currency} {debt.toLocaleString()}
-              </Text>
-            </View>
-          ) : (
-            <Text style={styles.cleanBalance}>Clean Ledger</Text>
-          )}
-          <ChevronRight size={18} color="#94A3B8" />
+        <View style={styles.cardDetails}>
+          <View>
+            <Text style={styles.metricLabel}>TOTAL SPENT</Text>
+            <Text style={styles.metricValue}>
+              {currency} {(item.totalSpent || 0).toLocaleString()}
+            </Text>
+          </View>
+
+          <View>
+            <Text style={styles.metricLabel}>LOYALTY POINTS</Text>
+            <Text style={styles.metricValue}>{item.loyaltyPoints || 0} pts</Text>
+          </View>
+
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={styles.metricLabel}>DEBT BALANCE</Text>
+            {hasDebt ? (
+              <View style={styles.debtTag}>
+                <Text style={styles.debtTagText}>
+                  {currency} {debt.toLocaleString()}
+                </Text>
+              </View>
+            ) : (
+              <Text style={styles.zeroDebtText}>Cleared</Text>
+            )}
+          </View>
         </View>
-      </TouchableOpacity>
+
+        {/* Action Row */}
+        <View style={styles.cardActions}>
+          {item.phone ? (
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={() => handleWhatsAppCustomer(item.phone!, item.name)}
+              activeOpacity={0.7}
+            >
+              <MessageCircle size={14} color="#10B981" />
+              <Text style={[styles.actionBtnText, { color: '#10B981' }]}>WhatsApp</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          <TouchableOpacity
+            style={styles.ledgerBtn}
+            onPress={() => navigation.navigate('CustomerLedger', { customer: item })}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.ledgerBtnText}>View Ledger</Text>
+            <ChevronRight size={14} color="#F47125" />
+          </TouchableOpacity>
+        </View>
+      </View>
     );
   };
 
   return (
     <View style={styles.container}>
-      {/* Header with Search and New Customer */}
+      {/* Top Header */}
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
-          <GlowInput
-            placeholder="Search customers by name, phone, email..."
-            value={search}
-            onChangeText={setSearch}
-            leftIcon={<Search size={18} color="#94A3B8" />}
-            rightIcon={
-              search ? (
-                <TouchableOpacity onPress={() => setSearch('')}>
-                  <X size={16} color="#94A3B8" />
-                </TouchableOpacity>
-              ) : undefined
-            }
-            containerStyle={{ marginVertical: 0 }}
-          />
+          <Text style={styles.headerTitle}>Customers & Debt</Text>
+          <Text style={styles.headerSubtitle}>
+            {stats.total} accounts • {stats.debtorCount} with active debt
+          </Text>
         </View>
 
         <GlowButton
@@ -165,50 +250,85 @@ export function CustomersDirectoryScreen() {
           icon={<UserPlus size={16} color="#FFFFFF" />}
           onPress={() => setShowAddModal(true)}
           variant="primary"
-          size="default"
+          size="sm"
+        />
+      </View>
+
+      {/* Aggregate Debt Metric Banner */}
+      {stats.totalDebt > 0 ? (
+        <View style={styles.debtBanner}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <CreditCard size={18} color="#DC2626" />
+            <Text style={styles.debtBannerLabel}>TOTAL OUTSTANDING DEBT</Text>
+          </View>
+          <Text style={styles.debtBannerVal}>
+            {currency} {stats.totalDebt.toLocaleString()}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* Search Bar with GlowInput */}
+      <View style={styles.searchSection}>
+        <GlowInput
+          placeholder="Search by customer name, phone, email..."
+          value={search}
+          onChangeText={setSearch}
+          leftIcon={<Search size={18} color="#94A3B8" />}
+          rightIcon={
+            search ? (
+              <TouchableOpacity onPress={() => setSearch('')}>
+                <X size={16} color="#94A3B8" />
+              </TouchableOpacity>
+            ) : undefined
+          }
+          containerStyle={{ marginVertical: 0 }}
         />
       </View>
 
       {/* Filter Tabs */}
-      <View style={styles.filterRow}>
+      <View style={styles.filterTabs}>
         <TouchableOpacity
-          style={[styles.filterChip, filterMode === 'all' && styles.filterChipSelected]}
+          style={[styles.filterChip, filterMode === 'all' && styles.filterChipActive]}
           onPress={() => setFilterMode('all')}
-          activeOpacity={0.7}
         >
-          <Text style={[styles.filterChipText, filterMode === 'all' && styles.filterChipTextSelected]}>
-            All Customers ({customers.length})
+          <Text style={[styles.filterText, filterMode === 'all' && styles.filterTextActive]}>
+            All ({stats.total})
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.filterChip, filterMode === 'debtors' && styles.filterChipSelected]}
+          style={[styles.filterChip, filterMode === 'debtors' && styles.filterChipActive]}
           onPress={() => setFilterMode('debtors')}
-          activeOpacity={0.7}
         >
-          <Text
-            style={[
-              styles.filterChipText,
-              filterMode === 'debtors' && styles.filterChipTextSelected,
-            ]}
-          >
-            Debtors Only ({customers.filter((c) => (c.debtBalance || 0) > 0).length})
+          <Text style={[styles.filterText, filterMode === 'debtors' && styles.filterTextActive]}>
+            Debtors ({stats.debtorCount})
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.filterChip, filterMode === 'vip' && styles.filterChipActive]}
+          onPress={() => setFilterMode('vip')}
+        >
+          <Text style={[styles.filterText, filterMode === 'vip' && styles.filterTextActive]}>
+            VIP ({stats.vipCount})
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Customer Directory List */}
+      {/* List */}
       <FlatList
         data={filtered}
-        keyExtractor={(c) => c.id}
+        keyExtractor={(item) => item.id}
         renderItem={renderCustomer}
         contentContainerStyle={styles.listContent}
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <User size={48} color="#CBD5E1" />
-            <Text style={styles.emptyTitle}>No customers found</Text>
-            <Text style={styles.emptySubtitle}>Tap 'Add Customer' above to record a new client profile.</Text>
+            <Users size={40} color="#CBD5E1" />
+            <Text style={styles.emptyTitle}>No matching customers</Text>
+            <Text style={styles.emptySubtitle}>
+              Try adjusting your search query or create a new customer profile.
+            </Text>
           </View>
         }
       />
@@ -226,8 +346,8 @@ export function CustomersDirectoryScreen() {
 
             <View style={styles.modalForm}>
               <GlowInput
-                label="Full Name *"
-                placeholder="e.g. Ibrahim Danladi"
+                label="Customer Full Name *"
+                placeholder="e.g. Amina Bello"
                 value={name}
                 onChangeText={setName}
                 leftIcon={<User size={18} color="#94A3B8" />}
@@ -244,7 +364,7 @@ export function CustomersDirectoryScreen() {
 
               <GlowInput
                 label="Email Address"
-                placeholder="ibrahim@example.com"
+                placeholder="amina@example.com"
                 keyboardType="email-address"
                 autoCapitalize="none"
                 value={email}
@@ -252,14 +372,23 @@ export function CustomersDirectoryScreen() {
                 leftIcon={<Mail size={18} color="#94A3B8" />}
               />
 
-              <GlowButton
-                title="Save Customer Profile"
-                onPress={handleCreateCustomer}
-                isLoading={isSaving}
-                variant="primary"
-                size="default"
-                style={{ marginTop: 12 }}
-              />
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+                <GlowButton
+                  title="Cancel"
+                  onPress={() => setShowAddModal(false)}
+                  variant="outline"
+                  size="default"
+                  style={{ flex: 1 }}
+                />
+                <GlowButton
+                  title="Save Profile"
+                  onPress={handleCreateCustomer}
+                  isLoading={isSaving}
+                  variant="primary"
+                  size="default"
+                  style={{ flex: 1 }}
+                />
+              </View>
             </View>
           </View>
         </View>
@@ -276,12 +405,52 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 8,
-    gap: 8,
   },
-  filterRow: {
+  headerTitle: {
+    fontSize: 16,
+    fontFamily: fonts.headingBold,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    color: '#64748B',
+    fontFamily: fonts.regular,
+    marginTop: 2,
+  },
+  debtBanner: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 12,
+    marginHorizontal: 16,
+    marginVertical: 4,
+    padding: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  debtBannerLabel: {
+    fontSize: 10,
+    fontFamily: fonts.bold,
+    color: '#DC2626',
+    letterSpacing: 0.8,
+  },
+  debtBannerVal: {
+    fontSize: 16,
+    fontFamily: fonts.headingBold,
+    fontWeight: '800',
+    color: '#DC2626',
+  },
+  searchSection: {
+    paddingHorizontal: 16,
+    paddingVertical: 4,
+  },
+  filterTabs: {
     flexDirection: 'row',
     paddingHorizontal: 16,
     paddingVertical: 6,
@@ -295,106 +464,204 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
-  filterChipSelected: {
-    borderColor: '#F47125',
-    backgroundColor: '#FFF7ED',
+  filterChipActive: {
+    backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
   },
-  filterChipText: {
+  filterText: {
     fontSize: 12,
     color: '#64748B',
-    fontWeight: '500',
+    fontFamily: fonts.medium,
   },
-  filterChipTextSelected: {
-    color: '#F47125',
-    fontWeight: '600',
+  filterTextActive: {
+    color: '#FFFFFF',
+    fontFamily: fonts.bold,
   },
   listContent: {
     padding: 16,
-    paddingBottom: 40,
+    paddingBottom: 30,
   },
   card: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E2E8F0',
     borderRadius: 12,
     padding: 14,
-    marginBottom: 8,
+    marginBottom: 10,
+    position: 'relative',
   },
-  cardLeft: {
+  cornerTopRight: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    width: 6,
+    height: 6,
+    borderTopWidth: 1.5,
+    borderRightWidth: 1.5,
+    borderColor: '#CBD5E1',
+    zIndex: 10,
+  },
+  cornerBottomLeft: {
+    position: 'absolute',
+    bottom: 5,
+    left: 5,
+    width: 6,
+    height: 6,
+    borderBottomWidth: 1.5,
+    borderLeftWidth: 1.5,
+    borderColor: '#CBD5E1',
+    zIndex: 10,
+  },
+  cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#F1F5F9',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFF7ED',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
   },
-  avatarDebt: {
-    backgroundColor: '#FEF2F2',
+  avatarText: {
+    fontSize: 16,
+    fontFamily: fonts.headingBold,
+    fontWeight: '700',
+    color: '#F47125',
   },
-  info: {
+  cardHeaderText: {
     flex: 1,
   },
-  name: {
+  customerName: {
     fontSize: 15,
+    fontFamily: fonts.medium,
     fontWeight: '600',
     color: '#0F172A',
   },
-  contactRow: {
-    marginTop: 2,
+  vipBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
   },
-  contactText: {
-    fontSize: 12,
-    color: '#64748B',
+  vipBadgeText: {
+    fontSize: 9,
+    fontFamily: fonts.bold,
+    color: '#D97706',
   },
-  cardRight: {
+  metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    marginTop: 2,
+    flexWrap: 'wrap',
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  metaText: {
+    fontSize: 12,
+    color: '#64748B',
+    fontFamily: fonts.regular,
+  },
+  cardDetails: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  metricLabel: {
+    fontSize: 10,
+    fontFamily: fonts.bold,
+    color: '#94A3B8',
+    letterSpacing: 0.5,
+  },
+  metricValue: {
+    fontSize: 13,
+    fontFamily: fonts.medium,
+    fontWeight: '600',
+    color: '#0F172A',
+    marginTop: 2,
   },
   debtTag: {
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FCA5A5',
-    borderRadius: 4,
+    backgroundColor: '#FEE2E2',
     paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginTop: 2,
   },
   debtTagText: {
-    fontSize: 11,
+    fontSize: 12,
+    fontFamily: fonts.bold,
     fontWeight: '700',
     color: '#DC2626',
   },
-  cleanBalance: {
+  zeroDebtText: {
     fontSize: 12,
+    fontFamily: fonts.medium,
     color: '#10B981',
-    fontWeight: '500',
+    marginTop: 2,
+  },
+  cardActions: {
+    marginTop: 12,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F8FAFC',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: '#ECFDF5',
+  },
+  actionBtnText: {
+    fontSize: 11,
+    fontFamily: fonts.bold,
+  },
+  ledgerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  ledgerBtnText: {
+    fontSize: 12,
+    fontFamily: fonts.bold,
+    color: '#F47125',
   },
   emptyContainer: {
     padding: 32,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 32,
   },
   emptyTitle: {
-    fontSize: 16,
+    fontSize: 15,
+    fontFamily: fonts.headingBold,
     fontWeight: '600',
     color: '#0F172A',
-    marginTop: 12,
+    marginTop: 10,
   },
   emptySubtitle: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#64748B',
-    textAlign: 'center',
+    fontFamily: fonts.regular,
     marginTop: 4,
+    textAlign: 'center',
   },
   modalOverlay: {
     flex: 1,
@@ -417,7 +684,8 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 17,
+    fontFamily: fonts.headingBold,
     fontWeight: '700',
     color: '#0F172A',
   },

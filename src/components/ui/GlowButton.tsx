@@ -8,6 +8,7 @@ import {
   type TextStyle,
   Platform,
 } from 'react-native';
+import { fonts } from '@/theme/typography';
 
 export interface GlowButtonProps {
   onPress: () => void;
@@ -100,9 +101,9 @@ const styles = StyleSheet.create({
       : {
           shadowColor: '#F47125',
           shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.28,
+          shadowOpacity: 0.35,
           shadowRadius: 5,
-          elevation: 3,
+          elevation: 4,
         }),
   },
   outline: {
@@ -114,12 +115,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     borderWidth: 0,
   },
-  destructive: {
-    backgroundColor: '#EF4444',
-    borderWidth: 0,
-  },
   ghost: {
     backgroundColor: 'transparent',
+    borderWidth: 0,
+  },
+  destructive: {
+    backgroundColor: '#DC2626',
     borderWidth: 0,
   },
   size_default: {
@@ -129,17 +130,21 @@ const styles = StyleSheet.create({
   size_sm: {
     height: 36,
     paddingHorizontal: 12,
+    borderRadius: 6,
   },
   size_lg: {
-    height: 48,
+    height: 50,
     paddingHorizontal: 24,
+    borderRadius: 10,
   },
   disabled: {
     opacity: 0.5,
   },
   textBase: {
     fontSize: 14,
-    fontWeight: '600',
+    fontFamily: fonts.bold,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   textLight: {
     color: '#FFFFFF',

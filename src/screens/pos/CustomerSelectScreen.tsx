@@ -17,6 +17,7 @@ import { useI18n } from '@/context/i18n-context';
 import type { Customer } from '@/types';
 import { GlowInput } from '@/components/ui/GlowInput';
 import { GlowButton } from '@/components/ui/GlowButton';
+import { fonts } from '@/theme/typography';
 import {
   Search,
   UserPlus,
@@ -253,7 +254,7 @@ export function CustomerSelectScreen() {
 
               <GlowInput
                 label="Email Address"
-                placeholder="fatima@example.com"
+                placeholder="customer@domain.com"
                 keyboardType="email-address"
                 autoCapitalize="none"
                 value={newEmail}
@@ -261,14 +262,23 @@ export function CustomerSelectScreen() {
                 leftIcon={<Mail size={18} color="#94A3B8" />}
               />
 
-              <GlowButton
-                title="Create & Select Customer"
-                onPress={handleCreateCustomer}
-                isLoading={isSaving}
-                variant="primary"
-                size="default"
-                style={{ marginTop: 12 }}
-              />
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+                <GlowButton
+                  title="Cancel"
+                  onPress={() => setShowAddModal(false)}
+                  variant="outline"
+                  size="default"
+                  style={{ flex: 1 }}
+                />
+                <GlowButton
+                  title="Save Profile"
+                  onPress={handleCreateCustomer}
+                  isLoading={isSaving}
+                  variant="primary"
+                  size="default"
+                  style={{ flex: 1 }}
+                />
+              </View>
             </View>
           </View>
         </View>
@@ -284,36 +294,38 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
+    paddingTop: 12,
+    paddingBottom: 6,
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 16,
+    fontFamily: fonts.headingBold,
     fontWeight: '700',
     color: '#0F172A',
   },
   headerSubtitle: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#64748B',
+    fontFamily: fonts.regular,
     marginTop: 2,
   },
   searchSection: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
   guestCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
+    marginHorizontal: 16,
+    marginVertical: 4,
     borderWidth: 1,
     borderColor: '#E2E8F0',
     borderRadius: 12,
-    marginHorizontal: 16,
-    marginBottom: 8,
-    padding: 14,
+    padding: 12,
   },
   guestCardSelected: {
     borderColor: '#F47125',
@@ -321,7 +333,8 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: 16,
-    paddingBottom: 90,
+    paddingTop: 4,
+    paddingBottom: 95,
   },
   customerCard: {
     flexDirection: 'row',
@@ -350,7 +363,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   customerName: {
-    fontSize: 15,
+    fontSize: 14,
+    fontFamily: fonts.medium,
     fontWeight: '600',
     color: '#0F172A',
   },
@@ -369,6 +383,7 @@ const styles = StyleSheet.create({
   customerMetaText: {
     fontSize: 12,
     color: '#64748B',
+    fontFamily: fonts.regular,
   },
   debtBadge: {
     backgroundColor: '#FEF2F2',
@@ -380,6 +395,7 @@ const styles = StyleSheet.create({
   },
   debtBadgeText: {
     fontSize: 11,
+    fontFamily: fonts.bold,
     fontWeight: '600',
     color: '#DC2626',
   },
@@ -400,6 +416,7 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 14,
     color: '#94A3B8',
+    fontFamily: fonts.regular,
   },
   footer: {
     position: 'absolute',
@@ -414,13 +431,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    elevation: 8,
   },
   footerLabel: {
     fontSize: 11,
     color: '#64748B',
+    fontFamily: fonts.medium,
   },
   footerTotal: {
-    fontSize: 18,
+    fontSize: 17,
+    fontFamily: fonts.headingBold,
     fontWeight: '700',
     color: '#0F172A',
   },
@@ -445,7 +465,8 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 17,
+    fontFamily: fonts.headingBold,
     fontWeight: '700',
     color: '#0F172A',
   },

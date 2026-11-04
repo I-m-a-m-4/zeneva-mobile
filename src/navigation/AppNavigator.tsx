@@ -1,8 +1,19 @@
-import React from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  ActivityIndicator,
+  StyleSheet,
+  Modal,
+  TouchableOpacity,
+  ScrollView,
+  Alert,
+} from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '@/context/AuthContext';
+import { useBranch } from '@/context/branch-context';
 import type {
   RootStackParamList,
   MainTabParamList,
@@ -11,12 +22,15 @@ import type {
   CustomersStackParamList,
   AdminStackParamList,
 } from './types';
+import { fonts } from '@/theme/typography';
+import { MobileTopHeader } from '@/components/layout/MobileTopHeader';
 
 // Screens
 import { LoginScreen } from '@/screens/auth/LoginScreen';
 import { RegisterScreen } from '@/screens/auth/RegisterScreen';
 import { PinLockScreen } from '@/screens/auth/PinLockScreen';
 
+import { DashboardScreen } from '@/screens/dashboard/DashboardScreen';
 import { SelectProductsScreen } from '@/screens/pos/SelectProductsScreen';
 import { CustomerSelectScreen } from '@/screens/pos/CustomerSelectScreen';
 import { PaymentScreen } from '@/screens/pos/PaymentScreen';
@@ -36,15 +50,20 @@ import { SettingsScreen } from '@/screens/settings/SettingsScreen';
 
 // Icons
 import {
+  Home,
   ShoppingCart,
   Package,
   Users,
+  Menu,
   ShieldAlert,
   BarChart3,
   Settings,
+  LogOut,
+  Award,
+  Store,
+  X,
+  ChevronRight,
 } from 'lucide-react-native';
-
-import { fonts } from '@/theme/typography';
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -165,85 +184,201 @@ function AdminNavigator() {
   );
 }
 
+const EmptyScreen = () => <View style={{ flex: 1, backgroundColor: '#F9F8F6' }} />;
+
 function MainTabNavigator() {
+  const rootNavigation = useNavigation<any>();
+  const { signOut, user } = useAuth();
+  const { branches, activeBranchId } = useBranch();
+  const [isMoreSheetOpen, setIsMoreSheetOpen] = useState(false);
+
+  const activeBranchName =
+    branches.find((b) => b.id === activeBranchId)?.name || 'Main Store';
+
+  const handleSignOut = () => {
+    setIsMoreSheetOpen(false);
+    Alert.alert('Sign Out', 'Are you sure you want to log out of Zeneva?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Log Out',
+        style: 'destructive',
+        onPress: () => signOut(),
+      },
+    ]);
+  };
+
   return (
-    <Tab.Navigator
-      screenOptions={{
-        tabBarActiveTintColor: '#F47125',
-        tabBarInactiveTintColor: '#94A3B8',
-        tabBarStyle: {
-          backgroundColor: '#FFFFFF',
-          borderTopColor: '#E2E8F0',
-          height: 60,
-          paddingBottom: 8,
-          paddingTop: 8,
-        },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontFamily: fonts.medium,
-          fontWeight: '600',
-        },
-        headerStyle: { backgroundColor: '#FFFFFF' },
-        headerTintColor: '#0F172A',
-        headerTitleStyle: { fontFamily: fonts.headingBold, fontSize: 17, fontWeight: '700' },
-        headerShadowVisible: false,
-      }}
-    >
-      <Tab.Screen
-        name="PosTab"
-        component={PosNavigator}
-        options={{
-          title: 'Register',
+    <View style={{ flex: 1 }}>
+      {/* Top Header Bar matching website (Store/Branch, WiFi Status, Queue, Avatar) */}
+      <MobileTopHeader
+        onOpenSettings={() => rootNavigation.navigate('SettingsScreen')}
+      />
+
+      <Tab.Navigator
+        screenOptions={{
+          tabBarActiveTintColor: '#F47125',
+          tabBarInactiveTintColor: '#94A3B8',
+          tabBarStyle: {
+            backgroundColor: '#FFFFFF',
+            borderTopColor: '#E2E8F0',
+            height: 60,
+            paddingBottom: 8,
+            paddingTop: 8,
+          },
+          tabBarLabelStyle: {
+            fontSize: 11,
+            fontFamily: fonts.medium,
+            fontWeight: '600',
+          },
           headerShown: false,
-          tabBarIcon: ({ color, size }) => <ShoppingCart size={size} color={color} />,
         }}
-      />
-      <Tab.Screen
-        name="InventoryTab"
-        component={InventoryNavigator}
-        options={{
-          title: 'Inventory',
-          headerShown: false,
-          tabBarIcon: ({ color, size }) => <Package size={size} color={color} />,
-        }}
-      />
-      <Tab.Screen
-        name="CustomersTab"
-        component={CustomersNavigator}
-        options={{
-          title: 'Customers',
-          headerShown: false,
-          tabBarIcon: ({ color, size }) => <Users size={size} color={color} />,
-        }}
-      />
-      <Tab.Screen
-        name="AuditTab"
-        component={AuditForensicsScreen}
-        options={{
-          title: 'Audit',
-          headerTitle: 'Forensics & Audit',
-          tabBarIcon: ({ color, size }) => <ShieldAlert size={size} color={color} />,
-        }}
-      />
-      <Tab.Screen
-        name="AdminTab"
-        component={AdminNavigator}
-        options={{
-          title: 'Admin',
-          headerShown: false,
-          tabBarIcon: ({ color, size }) => <BarChart3 size={size} color={color} />,
-        }}
-      />
-      <Tab.Screen
-        name="SettingsTab"
-        component={SettingsScreen}
-        options={{
-          title: 'Settings',
-          headerTitle: 'Register Settings',
-          tabBarIcon: ({ color, size }) => <Settings size={size} color={color} />,
-        }}
-      />
-    </Tab.Navigator>
+      >
+        {/* 1. Dashboard Tab */}
+        <Tab.Screen
+          name="DashboardTab"
+          component={DashboardScreen}
+          options={{
+            title: 'Dashboard',
+            tabBarIcon: ({ color, size }) => <Home size={size} color={color} />,
+          }}
+        />
+
+        {/* 2. Inventory Tab */}
+        <Tab.Screen
+          name="InventoryTab"
+          component={InventoryNavigator}
+          options={{
+            title: 'Inventory',
+            tabBarIcon: ({ color, size }) => <Package size={size} color={color} />,
+          }}
+        />
+
+        {/* 3. POS Tab */}
+        <Tab.Screen
+          name="PosTab"
+          component={PosNavigator}
+          options={{
+            title: 'POS',
+            tabBarIcon: ({ color, size }) => <ShoppingCart size={size} color={color} />,
+          }}
+        />
+
+        {/* 4. Customers Tab */}
+        <Tab.Screen
+          name="CustomersTab"
+          component={CustomersNavigator}
+          options={{
+            title: 'Customers',
+            tabBarIcon: ({ color, size }) => <Users size={size} color={color} />,
+          }}
+        />
+
+        {/* 5. More Tab - opens the bottom sheet with all other links matching web MobileBottomNav */}
+        <Tab.Screen
+          name="MoreTab"
+          component={EmptyScreen}
+          options={{
+            title: 'More',
+            tabBarIcon: ({ color, size }) => <Menu size={size} color={color} />,
+          }}
+          listeners={{
+            tabPress: (e) => {
+              e.preventDefault();
+              setIsMoreSheetOpen(true);
+            },
+          }}
+        />
+      </Tab.Navigator>
+
+      {/* "More Options" Bottom Sheet matching web MobileBottomNav */}
+      <Modal visible={isMoreSheetOpen} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.moreSheetCard}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>More Options</Text>
+              <TouchableOpacity onPress={() => setIsMoreSheetOpen(false)}>
+                <X size={22} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Current Store / Branch Indicator */}
+            <View style={styles.sheetBranchRow}>
+              <Store size={18} color="#F47125" />
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={styles.sheetBranchLabel}>ACTIVE BRANCH</Text>
+                <Text style={styles.sheetBranchName}>{activeBranchName}</Text>
+              </View>
+            </View>
+
+            <ScrollView style={{ maxHeight: 380 }}>
+              <TouchableOpacity
+                style={styles.sheetItem}
+                onPress={() => {
+                  setIsMoreSheetOpen(false);
+                  rootNavigation.navigate('AuditScreen');
+                }}
+              >
+                <View style={[styles.sheetItemIcon, { backgroundColor: '#FEF2F2' }]}>
+                  <ShieldAlert size={18} color="#DC2626" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sheetItemTitle}>Audit Log & Forensics</Text>
+                  <Text style={styles.sheetItemSub}>Cashier audits & void detections</Text>
+                </View>
+                <ChevronRight size={16} color="#CBD5E1" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.sheetItem}
+                onPress={() => {
+                  setIsMoreSheetOpen(false);
+                  rootNavigation.navigate('AdminScreen');
+                }}
+              >
+                <View style={[styles.sheetItemIcon, { backgroundColor: '#EFF6FF' }]}>
+                  <BarChart3 size={18} color="#2563EB" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sheetItemTitle}>Platform Analytics & Velocity</Text>
+                  <Text style={styles.sheetItemSub}>Store metrics & GMV telemetry</Text>
+                </View>
+                <ChevronRight size={16} color="#CBD5E1" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.sheetItem}
+                onPress={() => {
+                  setIsMoreSheetOpen(false);
+                  rootNavigation.navigate('SettingsScreen');
+                }}
+              >
+                <View style={[styles.sheetItemIcon, { backgroundColor: '#F1F5F9' }]}>
+                  <Settings size={18} color="#475569" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sheetItemTitle}>Store Settings</Text>
+                  <Text style={styles.sheetItemSub}>Receipts, printers & staff accounts</Text>
+                </View>
+                <ChevronRight size={16} color="#CBD5E1" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.sheetItem, { borderBottomWidth: 0, marginTop: 8 }]}
+                onPress={handleSignOut}
+              >
+                <View style={[styles.sheetItemIcon, { backgroundColor: '#FEF2F2' }]}>
+                  <LogOut size={18} color="#DC2626" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.sheetItemTitle, { color: '#DC2626' }]}>Sign Out</Text>
+                  <Text style={styles.sheetItemSub}>{user?.email}</Text>
+                </View>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
@@ -268,7 +403,36 @@ export function AppNavigator() {
       ) : isLocked ? (
         <RootStack.Screen name="PinLock" component={PinLockScreen} />
       ) : (
-        <RootStack.Screen name="MainTabs" component={MainTabNavigator} />
+        <>
+          <RootStack.Screen name="MainTabs" component={MainTabNavigator} />
+          <RootStack.Screen
+            name="AuditScreen"
+            component={AuditForensicsScreen}
+            options={{
+              headerShown: true,
+              title: 'Forensics & Audit Log',
+              headerStyle: { backgroundColor: '#FFFFFF' },
+              headerTintColor: '#0F172A',
+              headerTitleStyle: { fontFamily: fonts.headingBold, fontSize: 17, fontWeight: '700' },
+            }}
+          />
+          <RootStack.Screen
+            name="AdminScreen"
+            component={AdminNavigator}
+            options={{ headerShown: false }}
+          />
+          <RootStack.Screen
+            name="SettingsScreen"
+            component={SettingsScreen}
+            options={{
+              headerShown: true,
+              title: 'Store Settings',
+              headerStyle: { backgroundColor: '#FFFFFF' },
+              headerTintColor: '#0F172A',
+              headerTitleStyle: { fontFamily: fonts.headingBold, fontSize: 17, fontWeight: '700' },
+            }}
+          />
+        </>
       )}
     </RootStack.Navigator>
   );
@@ -281,5 +445,78 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'flex-end',
+  },
+  moreSheetCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: 36,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  sheetTitle: {
+    fontSize: 17,
+    fontFamily: fonts.headingBold,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  sheetBranchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+  },
+  sheetBranchLabel: {
+    fontSize: 9,
+    fontFamily: fonts.bold,
+    color: '#94A3B8',
+    letterSpacing: 0.6,
+  },
+  sheetBranchName: {
+    fontSize: 13,
+    fontFamily: fonts.medium,
+    fontWeight: '600',
+    color: '#0F172A',
+    marginTop: 2,
+  },
+  sheetItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  sheetItemIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  sheetItemTitle: {
+    fontSize: 14,
+    fontFamily: fonts.medium,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+  sheetItemSub: {
+    fontSize: 11,
+    color: '#64748B',
+    fontFamily: fonts.regular,
+    marginTop: 2,
+  },
 });
-

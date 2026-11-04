@@ -29,12 +29,11 @@ export type AdminStackParamList = {
 };
 
 export type MainTabParamList = {
-  PosTab: NavigatorScreenParams<PosStackParamList>;
+  DashboardTab: undefined;
   InventoryTab: NavigatorScreenParams<InventoryStackParamList>;
+  PosTab: NavigatorScreenParams<PosStackParamList>;
   CustomersTab: NavigatorScreenParams<CustomersStackParamList>;
-  AuditTab: undefined;
-  AdminTab: undefined;
-  SettingsTab: undefined;
+  MoreTab: undefined;
 };
 
 export type RootStackParamList = {
@@ -42,9 +41,11 @@ export type RootStackParamList = {
   Register: undefined;
   PinLock: undefined;
   MainTabs: NavigatorScreenParams<MainTabParamList>;
+  AuditScreen: undefined;
+  AdminScreen: undefined;
+  SettingsScreen: undefined;
   ItemEditorModal: { productId?: string };
   StockTakeModal: undefined;
   CustomerLedgerModal: { customer: Customer };
   ReceiptReviewModal: { receipt: Receipt };
 };
-

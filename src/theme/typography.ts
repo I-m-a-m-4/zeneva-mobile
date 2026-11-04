@@ -29,3 +29,4 @@ export const themeColors = {
   warning: '#F59E0B',
   cardBg: '#FFFFFF',
 } as const;
+

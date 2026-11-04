@@ -10,232 +10,250 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Image,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '@/navigation/types';
 import { useAuth } from '@/context/AuthContext';
-import { Store, User, Mail, Phone, Lock, ArrowLeft, CheckCircle2 } from 'lucide-react-native';
+import { useI18n } from '@/context/i18n-context';
+import { Eye, EyeOff } from 'lucide-react-native';
+import { GoogleIcon } from '@/components/common/GoogleIcon';
 
 export function RegisterScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { signUpWithEmail } = useAuth();
+  const { t } = useI18n();
 
-  const [businessName, setBusinessName] = useState('');
-  const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [name, setName] = useState('');
+  const [businessName, setBusinessName] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
   const handleRegister = async () => {
-    if (!businessName.trim()) {
-      setErrorMessage('Please enter your store or business name.');
-      return;
-    }
-    if (!displayName.trim()) {
-      setErrorMessage('Please enter your full name.');
-      return;
-    }
     if (!email.trim() || !email.includes('@')) {
-      setErrorMessage('Please enter a valid email address.');
+      setErrorMessage(t('auth.valInvalidEmail'));
       return;
     }
     if (password.length < 6) {
-      setErrorMessage('Password must be at least 6 characters long.');
-      return;
-    }
-    if (password !== confirmPassword) {
-      setErrorMessage('Passwords do not match.');
+      setErrorMessage(t('auth.valPasswordMin'));
       return;
     }
 
     setErrorMessage('');
-    setIsSubmitting(true);
+    setIsLoading(true);
 
     try {
-      await signUpWithEmail(
-        email.trim(),
-        password.trim(),
-        displayName.trim(),
-        businessName.trim(),
-        phone.trim()
-      );
-      Alert.alert('Store Registered', 'Welcome to Zeneva Retail Operating System!');
+      const finalName = name.trim() || email.split('@')[0];
+      const finalBiz = businessName.trim() || `${finalName}'s Store`;
+      await signUpWithEmail(email.trim(), password.trim(), finalName, finalBiz);
+      // Auth state update handles transition to main app flow
     } catch (error: any) {
-      console.warn('Registration failure:', error);
-      let userFriendly = 'Registration could not be completed. Please try again.';
+      let description = t('auth.createAccountFailed');
       if (error?.code === 'auth/email-already-in-use') {
-        userFriendly = 'An account already exists with this email.';
+        description = t('auth.emailAlreadyInUse');
       } else if (error?.code === 'auth/weak-password') {
-        userFriendly = 'Password is too weak. Please use a stronger password.';
+        description = t('auth.valPasswordMin');
       } else if (error?.code === 'auth/invalid-email') {
-        userFriendly = 'The email address is invalid.';
+        description = t('auth.valInvalidEmail');
+      } else if (error?.message) {
+        description = error.message;
       }
-      setErrorMessage(userFriendly);
-      Alert.alert('Registration Error', userFriendly);
+      setErrorMessage(description);
+      Alert.alert(t('auth.authFailedTitle'), description);
     } finally {
-      setIsSubmitting(false);
+      setIsLoading(false);
     }
+  };
+
+  const handleGoogleSignup = () => {
+    Alert.alert(
+      t('auth.googleSignInFailedTitle'),
+      'Google Sign-Up on mobile devices requires a registered SHA-1 certificate in Firebase Console. Please register with your email and password.',
+      [{ text: 'OK' }]
+    );
   };
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={styles.keyboardContainer}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        {/* Top Back Nav */}
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-          <ArrowLeft size={20} color="#0F172A" />
-          <Text style={styles.backButtonText}>Back to Sign In</Text>
-        </TouchableOpacity>
-
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>Register Your Store</Text>
-          <Text style={styles.subtitle}>
-            Set up your high-volume retail lane in 60 seconds with offline sync.
-          </Text>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Top Bar: Sign in link */}
+        <View style={styles.topBar}>
+          <TouchableOpacity
+            style={styles.ghostButton}
+            onPress={() => navigation.navigate('Login')}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.ghostButtonText}>{t('auth.signInLink')}</Text>
+          </TouchableOpacity>
         </View>
 
-        {errorMessage ? (
-          <View style={styles.errorBanner}>
-            <Text style={styles.errorText}>{errorMessage}</Text>
-          </View>
-        ) : null}
-
-        {/* Card */}
-        <View style={styles.card}>
-          {/* Business Name */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Store / Business Name *</Text>
-            <View style={styles.inputWrapper}>
-              <Store size={20} color="#94A3B8" style={styles.inputIcon} />
-              <TextInput
-                style={styles.textInput}
-                placeholder="e.g. Apex Supermarket"
-                placeholderTextColor="#94A3B8"
-                value={businessName}
-                onChangeText={(t) => {
-                  setBusinessName(t);
-                  if (errorMessage) setErrorMessage('');
-                }}
+        {/* Center content */}
+        <View style={styles.centerContainer}>
+          <View style={styles.formWrapper}>
+            {/* Logo */}
+            <View style={styles.logoRow}>
+              <Image
+                source={require('../../../assets/icon.png')}
+                style={styles.logoImage}
+                resizeMode="contain"
               />
             </View>
-          </View>
 
-          {/* Full Name */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Owner / Manager Full Name *</Text>
-            <View style={styles.inputWrapper}>
-              <User size={20} color="#94A3B8" style={styles.inputIcon} />
-              <TextInput
-                style={styles.textInput}
-                placeholder="e.g. Bello Imam"
-                placeholderTextColor="#94A3B8"
-                value={displayName}
-                onChangeText={(t) => {
-                  setDisplayName(t);
-                  if (errorMessage) setErrorMessage('');
-                }}
-              />
+            {/* Headline & Subtitle */}
+            <Text style={styles.headline}>{t('auth.signupTitle')}</Text>
+            <Text style={styles.subtitle}>{t('auth.signupSubtitle')}</Text>
+
+            {/* Google OAuth Button First (exactly as on signup/page.tsx line 468) */}
+            <TouchableOpacity
+              style={styles.outlineButton}
+              onPress={handleGoogleSignup}
+              activeOpacity={0.7}
+              disabled={isLoading}
+            >
+              <GoogleIcon size={18} />
+              <Text style={styles.outlineButtonText}>{t('auth.continueWithGoogle')}</Text>
+            </TouchableOpacity>
+
+            {/* Divider: Or sign up with email */}
+            <View style={styles.dividerContainer}>
+              <View style={styles.dividerLine} />
+              <View style={styles.dividerPill}>
+                <Text style={styles.dividerText}>{t('auth.orSignupWithEmail')}</Text>
+              </View>
+            </View>
+
+            {/* Error banner */}
+            {errorMessage ? (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>{errorMessage}</Text>
+              </View>
+            ) : null}
+
+            {/* Form Fields */}
+            <View style={styles.formGroup}>
+              {/* Email */}
+              <View style={styles.inputItem}>
+                <Text style={styles.label}>{t('common.email')}</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder={t('auth.emailPlaceholder')}
+                  placeholderTextColor="#94A3B8"
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  autoCorrect={false}
+                  value={email}
+                  onChangeText={(val) => {
+                    setEmail(val);
+                    if (errorMessage) setErrorMessage('');
+                  }}
+                />
+              </View>
+
+              {/* Your Name */}
+              <View style={styles.inputItem}>
+                <Text style={styles.label}>{t('auth.nameLabel')}</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder={t('auth.namePlaceholder')}
+                  placeholderTextColor="#94A3B8"
+                  autoCapitalize="words"
+                  value={name}
+                  onChangeText={(val) => {
+                    setName(val);
+                    if (errorMessage) setErrorMessage('');
+                  }}
+                />
+              </View>
+
+              {/* Store / Business Name */}
+              <View style={styles.inputItem}>
+                <Text style={styles.label}>{t('auth.businessNameLabel')}</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder={t('auth.businessNamePlaceholder')}
+                  placeholderTextColor="#94A3B8"
+                  autoCapitalize="words"
+                  value={businessName}
+                  onChangeText={(val) => {
+                    setBusinessName(val);
+                    if (errorMessage) setErrorMessage('');
+                  }}
+                />
+              </View>
+
+              {/* Password */}
+              <View style={styles.inputItem}>
+                <Text style={styles.label}>{t('auth.password')}</Text>
+                <View style={styles.passwordWrapper}>
+                  <TextInput
+                    style={[styles.textInput, styles.passwordInput]}
+                    placeholder="••••••••••••"
+                    placeholderTextColor="#94A3B8"
+                    secureTextEntry={!showPassword}
+                    value={password}
+                    onChangeText={(val) => {
+                      setPassword(val);
+                      if (errorMessage) setErrorMessage('');
+                    }}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeButton}
+                    onPress={() => setShowPassword(!showPassword)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    {showPassword ? (
+                      <EyeOff size={18} color="#64748B" />
+                    ) : (
+                      <Eye size={18} color="#64748B" />
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Submit Button */}
+              <TouchableOpacity
+                style={[styles.primaryButton, isLoading && styles.buttonDisabled]}
+                onPress={handleRegister}
+                disabled={isLoading}
+                activeOpacity={0.8}
+              >
+                {isLoading ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={styles.primaryButtonText}>{t('auth.createAccountButton')}</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* Bottom prompt: Already have an account? Sign in */}
+            <View style={styles.bottomPrompt}>
+              <Text style={styles.promptText}>{t('auth.alreadyHaveAccount')} </Text>
+              <TouchableOpacity onPress={() => navigation.navigate('Login')}>
+                <Text style={styles.linkUnderline}>{t('auth.signInLink')}</Text>
+              </TouchableOpacity>
             </View>
           </View>
+        </View>
 
-          {/* Email */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Work Email *</Text>
-            <View style={styles.inputWrapper}>
-              <Mail size={20} color="#94A3B8" style={styles.inputIcon} />
-              <TextInput
-                style={styles.textInput}
-                placeholder="owner@store.com"
-                placeholderTextColor="#94A3B8"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                value={email}
-                onChangeText={(t) => {
-                  setEmail(t);
-                  if (errorMessage) setErrorMessage('');
-                }}
-              />
-            </View>
-          </View>
-
-          {/* Phone */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Phone Number (Optional)</Text>
-            <View style={styles.inputWrapper}>
-              <Phone size={20} color="#94A3B8" style={styles.inputIcon} />
-              <TextInput
-                style={styles.textInput}
-                placeholder="+234 800 000 0000"
-                placeholderTextColor="#94A3B8"
-                keyboardType="phone-pad"
-                value={phone}
-                onChangeText={setPhone}
-              />
-            </View>
-          </View>
-
-          {/* Password */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Password *</Text>
-            <View style={styles.inputWrapper}>
-              <Lock size={20} color="#94A3B8" style={styles.inputIcon} />
-              <TextInput
-                style={styles.textInput}
-                placeholder="At least 6 characters"
-                placeholderTextColor="#94A3B8"
-                secureTextEntry
-                value={password}
-                onChangeText={(t) => {
-                  setPassword(t);
-                  if (errorMessage) setErrorMessage('');
-                }}
-              />
-            </View>
-          </View>
-
-          {/* Confirm Password */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Confirm Password *</Text>
-            <View style={styles.inputWrapper}>
-              <Lock size={20} color="#94A3B8" style={styles.inputIcon} />
-              <TextInput
-                style={styles.textInput}
-                placeholder="Re-type password"
-                placeholderTextColor="#94A3B8"
-                secureTextEntry
-                value={confirmPassword}
-                onChangeText={(t) => {
-                  setConfirmPassword(t);
-                  if (errorMessage) setErrorMessage('');
-                }}
-              />
-            </View>
-          </View>
-
-          {/* Submit */}
-          <TouchableOpacity
-            style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
-            onPress={handleRegister}
-            disabled={isSubmitting}
-            activeOpacity={0.8}
-          >
-            {isSubmitting ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <>
-                <CheckCircle2 size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-                <Text style={styles.submitButtonText}>Create Zeneva Account</Text>
-              </>
-            )}
-          </TouchableOpacity>
+        {/* Legal Footer */}
+        <View style={styles.legalFooter}>
+          <Text style={styles.legalText}>
+            {t('auth.legalSignUp')}{' '}
+            <Text style={styles.legalLink}>{t('footer.linkTerms')}</Text>{' '}
+            {t('auth.legalAnd')}{' '}
+            <Text style={styles.legalLink}>{t('footer.linkPrivacyPolicy')}</Text>.
+          </Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -243,113 +261,206 @@ export function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
+  keyboardContainer: {
     flex: 1,
-    backgroundColor: '#F9F8F6',
+    width: '100%',
+    minHeight: '100%',
+    backgroundColor: '#FFFFFF',
   },
   scrollContent: {
-    padding: 24,
-    paddingTop: 48,
+    flexGrow: 1,
+    minHeight: '100%',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 44 : 20,
+    paddingBottom: 24,
+    backgroundColor: '#FFFFFF',
   },
-  backButton: {
+  topBar: {
     flexDirection: 'row',
+    justifyContent: 'flex-start',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 12,
   },
-  backButtonText: {
+  ghostButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  ghostButtonText: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '500',
     color: '#0F172A',
-    marginLeft: 6,
   },
-  header: {
-    marginBottom: 24,
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+    paddingVertical: 12,
   },
-  title: {
-    fontSize: 26,
-    fontWeight: '800',
+  formWrapper: {
+    width: '100%',
+    maxWidth: 380,
+  },
+  logoRow: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  logoImage: {
+    width: 60,
+    height: 60,
+  },
+  headline: {
+    fontSize: 28,
+    fontWeight: '700',
     color: '#0F172A',
+    textAlign: 'center',
+    marginBottom: 8,
+    letterSpacing: -0.5,
   },
   subtitle: {
     fontSize: 14,
     color: '#64748B',
-    marginTop: 4,
+    textAlign: 'center',
+    marginBottom: 20,
     lineHeight: 20,
   },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 24,
+  outlineButton: {
+    height: 44,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    elevation: 2,
-    marginBottom: 32,
+    borderRadius: 8,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    gap: 8,
   },
-  errorBanner: {
+  outlineButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#0F172A',
+  },
+  dividerContainer: {
+    position: 'relative',
+    marginVertical: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dividerLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: '#E2E8F0',
+  },
+  dividerPill: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+  },
+  dividerText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  errorBox: {
     backgroundColor: '#FEF2F2',
     borderWidth: 1,
     borderColor: '#FCA5A5',
-    borderRadius: 10,
-    padding: 12,
+    borderRadius: 8,
+    padding: 10,
     marginBottom: 16,
   },
   errorText: {
-    color: '#DC2626',
+    color: '#B91C1C',
     fontSize: 13,
+    lineHeight: 18,
+  },
+  formGroup: {
+    gap: 14,
+  },
+  inputItem: {
+    gap: 6,
+  },
+  label: {
+    fontSize: 14,
     fontWeight: '500',
-  },
-  inputGroup: {
-    marginBottom: 16,
-  },
-  inputLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#334155',
-    marginBottom: 8,
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-  },
-  inputIcon: {
-    marginRight: 10,
-  },
-  textInput: {
-    flex: 1,
-    height: 48,
-    fontSize: 15,
     color: '#0F172A',
   },
-  submitButton: {
-    backgroundColor: '#F47125',
-    borderRadius: 12,
-    height: 52,
-    flexDirection: 'row',
-    alignItems: 'center',
+  textInput: {
+    height: 44,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    color: '#0F172A',
+    backgroundColor: '#FFFFFF',
+  },
+  passwordWrapper: {
+    position: 'relative',
     justifyContent: 'center',
-    marginTop: 12,
-    shadowColor: '#F47125',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 3,
   },
-  submitButtonDisabled: {
-    opacity: 0.7,
+  passwordInput: {
+    paddingRight: 42,
   },
-  submitButtonText: {
+  eyeButton: {
+    position: 'absolute',
+    right: 12,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  primaryButton: {
+    height: 44,
+    backgroundColor: '#F47125',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  primaryButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  buttonDisabled: {
+    opacity: 0.65,
+  },
+  bottomPrompt: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  promptText: {
+    fontSize: 13,
+    color: '#0F172A',
+  },
+  linkUnderline: {
+    fontSize: 13,
+    color: '#0F172A',
+    textDecorationLine: 'underline',
+    fontWeight: '600',
+  },
+  legalFooter: {
+    marginTop: 24,
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  legalText: {
+    fontSize: 10,
+    color: '#94A3B8',
+    textAlign: 'center',
+    lineHeight: 14,
+    maxWidth: 340,
+  },
+  legalLink: {
+    color: '#F47125',
+    textDecorationLine: 'underline',
   },
 });
-

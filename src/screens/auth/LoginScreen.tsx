@@ -10,13 +10,15 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Image,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '@/navigation/types';
 import { useAuth } from '@/context/AuthContext';
 import { useI18n } from '@/context/i18n-context';
-import { Lock, Mail, Eye, EyeOff, Store, ArrowRight, ShieldCheck } from 'lucide-react-native';
+import { Eye, EyeOff } from 'lucide-react-native';
+import { GoogleIcon } from '@/components/common/GoogleIcon';
 
 export function LoginScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -26,153 +28,210 @@ export function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
-      setErrorMessage('Please enter both email and password.');
+      setErrorMessage(t('auth.invalidCredentials'));
       return;
     }
 
     setErrorMessage('');
-    setIsSubmitting(true);
+    setIsLoading(true);
 
     try {
       await signInWithEmail(email.trim(), password.trim());
-      // Auth state change will automatically navigate to MainTabs
+      // On success, Auth state triggers navigation to MainTabs
     } catch (error: any) {
-      console.warn('Login failure:', error);
-      let userFriendly = 'Invalid email or password. Please try again.';
-      if (error?.code === 'auth/user-not-found') {
-        userFriendly = 'No account found with this email.';
-      } else if (error?.code === 'auth/wrong-password') {
-        userFriendly = 'Incorrect password.';
-      } else if (error?.code === 'auth/invalid-email') {
-        userFriendly = 'Please enter a valid email address.';
+      let description = t('auth.invalidCredentials');
+      if (
+        error?.code === 'auth/user-not-found' ||
+        error?.code === 'auth/wrong-password' ||
+        error?.code === 'auth/invalid-credential'
+      ) {
+        description = t('auth.invalidCredentialsDetailed');
+      } else if (error?.code === 'auth/too-many-requests') {
+        description =
+          'Too many failed login attempts. Access is temporarily locked for security. Please try again in 15 minutes.';
       } else if (error?.code === 'auth/network-request-failed') {
-        userFriendly = 'Network connection failed. Check your internet.';
+        description = 'Network connection failed. Please check your internet connection.';
+      } else if (error?.code === 'auth/user-disabled') {
+        description = 'This account has been disabled. Please contact support.';
+      } else if (error?.message) {
+        description = error.message;
       }
-      setErrorMessage(userFriendly);
-      Alert.alert('Sign In Failed', userFriendly);
+      setErrorMessage(description);
+      Alert.alert(t('auth.loginFailedTitle'), description);
     } finally {
-      setIsSubmitting(false);
+      setIsLoading(false);
     }
   };
 
-  const handleQuickDemo = () => {
-    setEmail('admin@zeneva.space');
-    setPassword('demo123456');
+  const handleGoogleSignIn = () => {
+    Alert.alert(
+      t('auth.googleSignInFailedTitle'),
+      'Google Sign-In on mobile devices requires a registered SHA-1 certificate in Firebase Console. Please sign in with your email and password.',
+      [{ text: 'OK' }]
+    );
   };
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={styles.keyboardContainer}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        {/* Brand Header */}
-        <View style={styles.brandContainer}>
-          <View style={styles.logoBadge}>
-            <Store size={36} color="#F47125" />
-          </View>
-          <Text style={styles.brandTitle}>ZENEVA</Text>
-          <Text style={styles.brandSubtitle}>Industrial-Grade Retail Operating System</Text>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Top bar: Create an account link */}
+        <View style={styles.topBar}>
+          <TouchableOpacity
+            style={styles.ghostButton}
+            onPress={() => navigation.navigate('Register')}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.ghostButtonText}>{t('auth.createAccountLink')}</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Card Form */}
-        <View style={styles.formCard}>
-          <Text style={styles.formTitle}>Sign in to your register</Text>
-          <Text style={styles.formDescription}>
-            Enter your cashier or manager credentials below to access POS.
-          </Text>
-
-          {errorMessage ? (
-            <View style={styles.errorBanner}>
-              <Text style={styles.errorText}>{errorMessage}</Text>
-            </View>
-          ) : null}
-
-          {/* Email Field */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Work Email</Text>
-            <View style={styles.inputWrapper}>
-              <Mail size={20} color="#94A3B8" style={styles.inputIcon} />
-              <TextInput
-                style={styles.textInput}
-                placeholder="cashier@store.com"
-                placeholderTextColor="#94A3B8"
-                autoCapitalize="none"
-                keyboardType="email-address"
-                autoCorrect={false}
-                value={email}
-                onChangeText={(text) => {
-                  setEmail(text);
-                  if (errorMessage) setErrorMessage('');
-                }}
+        {/* Center content */}
+        <View style={styles.centerContainer}>
+          <View style={styles.formWrapper}>
+            {/* Logo */}
+            <View style={styles.logoRow}>
+              <Image
+                source={require('../../../assets/icon.png')}
+                style={styles.logoImage}
+                resizeMode="contain"
               />
             </View>
-          </View>
 
-          {/* Password Field */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Password</Text>
-            <View style={styles.inputWrapper}>
-              <Lock size={20} color="#94A3B8" style={styles.inputIcon} />
-              <TextInput
-                style={styles.textInput}
-                placeholder="••••••••••••"
-                placeholderTextColor="#94A3B8"
-                secureTextEntry={!showPassword}
-                value={password}
-                onChangeText={(text) => {
-                  setPassword(text);
-                  if (errorMessage) setErrorMessage('');
-                }}
-              />
+            {/* Headline & Subtitle */}
+            <Text style={styles.headline}>{t('auth.loginTitle')}</Text>
+            <Text style={styles.subtitle}>{t('auth.loginSubtitle')}</Text>
+
+            {/* Error banner if present */}
+            {errorMessage ? (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>{errorMessage}</Text>
+              </View>
+            ) : null}
+
+            {/* Form Fields */}
+            <View style={styles.formGroup}>
+              {/* Email */}
+              <View style={styles.inputItem}>
+                <Text style={styles.label}>{t('common.email')}</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder={t('auth.emailPlaceholder')}
+                  placeholderTextColor="#94A3B8"
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  autoCorrect={false}
+                  value={email}
+                  onChangeText={(val) => {
+                    setEmail(val);
+                    if (errorMessage) setErrorMessage('');
+                  }}
+                />
+              </View>
+
+              {/* Password */}
+              <View style={styles.inputItem}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.label}>{t('auth.password')}</Text>
+                  <TouchableOpacity
+                    onPress={() =>
+                      Alert.alert(
+                        t('auth.forgotPasswordLink'),
+                        'To reset your password, please contact your store administrator or visit https://zeneva.space/forgot-password.'
+                      )
+                    }
+                  >
+                    <Text style={styles.forgotLink}>{t('auth.forgotPasswordLink')}</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.passwordWrapper}>
+                  <TextInput
+                    style={[styles.textInput, styles.passwordInput]}
+                    placeholder="••••••••••••"
+                    placeholderTextColor="#94A3B8"
+                    secureTextEntry={!showPassword}
+                    value={password}
+                    onChangeText={(val) => {
+                      setPassword(val);
+                      if (errorMessage) setErrorMessage('');
+                    }}
+                  />
+                  <TouchableOpacity
+                    style={styles.eyeButton}
+                    onPress={() => setShowPassword(!showPassword)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    {showPassword ? (
+                      <EyeOff size={18} color="#64748B" />
+                    ) : (
+                      <Eye size={18} color="#64748B" />
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Login Button */}
               <TouchableOpacity
-                onPress={() => setShowPassword(!showPassword)}
-                style={styles.eyeButton}
+                style={[styles.primaryButton, isLoading && styles.buttonDisabled]}
+                onPress={handleLogin}
+                disabled={isLoading}
+                activeOpacity={0.8}
               >
-                {showPassword ? (
-                  <EyeOff size={20} color="#94A3B8" />
+                {isLoading ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
                 ) : (
-                  <Eye size={20} color="#94A3B8" />
+                  <Text style={styles.primaryButtonText}>{t('auth.loginButton')}</Text>
                 )}
               </TouchableOpacity>
             </View>
-          </View>
 
-          {/* Submit Button */}
-          <TouchableOpacity
-            style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
-            onPress={handleLogin}
-            disabled={isSubmitting}
-            activeOpacity={0.8}
-          >
-            {isSubmitting ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <>
-                <Text style={styles.submitButtonText}>Launch Register</Text>
-                <ArrowRight size={18} color="#FFFFFF" style={{ marginLeft: 8 }} />
-              </>
-            )}
-          </TouchableOpacity>
+            {/* Divider: Or continue with */}
+            <View style={styles.dividerContainer}>
+              <View style={styles.dividerLine} />
+              <View style={styles.dividerPill}>
+                <Text style={styles.dividerText}>{t('auth.orContinueWith')}</Text>
+              </View>
+            </View>
 
-          {/* Register Link */}
-          <View style={styles.registerPrompt}>
-            <Text style={styles.registerPromptText}>Don't have a Zeneva store?</Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-              <Text style={styles.registerLinkText}> Register Store</Text>
+            {/* Google OAuth Button */}
+            <TouchableOpacity
+              style={styles.outlineButton}
+              onPress={handleGoogleSignIn}
+              activeOpacity={0.7}
+            >
+              <GoogleIcon size={18} />
+              <Text style={styles.outlineButtonText}>Google</Text>
             </TouchableOpacity>
-          </View>
 
-          {/* Demo fill button */}
-          <TouchableOpacity style={styles.demoButton} onPress={handleQuickDemo}>
-            <ShieldCheck size={16} color="#64748B" />
-            <Text style={styles.demoButtonText}>Fill Demo Credentials</Text>
-          </TouchableOpacity>
+            {/* Bottom prompt: Don't have an account? Sign up */}
+            <View style={styles.bottomPrompt}>
+              <Text style={styles.promptText}>{t('auth.noAccountPrompt')} </Text>
+              <TouchableOpacity onPress={() => navigation.navigate('Register')}>
+                <Text style={styles.linkUnderline}>{t('auth.signUpLink')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        {/* Legal Footer */}
+        <View style={styles.legalFooter}>
+          <Text style={styles.legalText}>
+            {t('auth.legalSignIn')}{' '}
+            <Text style={styles.legalLink}>{t('footer.linkTerms')}</Text>{' '}
+            {t('auth.legalAnd')}{' '}
+            <Text style={styles.legalLink}>{t('footer.linkPrivacyPolicy')}</Text>.
+          </Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -180,167 +239,216 @@ export function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
+  keyboardContainer: {
     flex: 1,
-    backgroundColor: '#F9F8F6',
+    width: '100%',
+    minHeight: '100%',
+    backgroundColor: '#FFFFFF',
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
-    padding: 24,
+    minHeight: '100%',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 44 : 20,
+    paddingBottom: 24,
+    backgroundColor: '#FFFFFF',
   },
-  brandContainer: {
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 12,
   },
-  logoBadge: {
-    width: 72,
-    height: 72,
-    borderRadius: 20,
-    backgroundColor: '#FFF7ED',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: '#FED7AA',
-    marginBottom: 16,
-    shadowColor: '#F47125',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    elevation: 3,
+  ghostButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
   },
-  brandTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: 2,
+  ghostButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
     color: '#0F172A',
   },
-  brandSubtitle: {
-    fontSize: 13,
-    color: '#64748B',
-    marginTop: 4,
-    textAlign: 'center',
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+    paddingVertical: 12,
   },
-  formCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    elevation: 2,
+  formWrapper: {
+    width: '100%',
+    maxWidth: 350,
   },
-  formTitle: {
-    fontSize: 20,
+  logoRow: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  logoImage: {
+    width: 60,
+    height: 60,
+  },
+  headline: {
+    fontSize: 28,
     fontWeight: '700',
     color: '#0F172A',
-    marginBottom: 6,
+    textAlign: 'center',
+    marginBottom: 8,
+    letterSpacing: -0.5,
   },
-  formDescription: {
+  subtitle: {
     fontSize: 14,
     color: '#64748B',
-    marginBottom: 20,
+    textAlign: 'center',
+    marginBottom: 24,
     lineHeight: 20,
   },
-  errorBanner: {
+  errorBox: {
     backgroundColor: '#FEF2F2',
     borderWidth: 1,
     borderColor: '#FCA5A5',
-    borderRadius: 10,
-    padding: 12,
+    borderRadius: 8,
+    padding: 10,
     marginBottom: 16,
   },
   errorText: {
-    color: '#DC2626',
+    color: '#B91C1C',
     fontSize: 13,
-    fontWeight: '500',
+    lineHeight: 18,
   },
-  inputGroup: {
-    marginBottom: 18,
+  formGroup: {
+    gap: 16,
   },
-  inputLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#334155',
-    marginBottom: 8,
+  inputItem: {
+    gap: 6,
   },
-  inputWrapper: {
+  labelRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 12,
-    paddingHorizontal: 12,
   },
-  inputIcon: {
-    marginRight: 10,
-  },
-  textInput: {
-    flex: 1,
-    height: 48,
-    fontSize: 15,
+  label: {
+    fontSize: 14,
+    fontWeight: '500',
     color: '#0F172A',
   },
-  eyeButton: {
-    padding: 8,
+  forgotLink: {
+    fontSize: 13,
+    color: '#0F172A',
+    textDecorationLine: 'underline',
   },
-  submitButton: {
-    backgroundColor: '#F47125',
-    borderRadius: 12,
-    height: 50,
-    flexDirection: 'row',
-    alignItems: 'center',
+  textInput: {
+    height: 44,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    color: '#0F172A',
+    backgroundColor: '#FFFFFF',
+  },
+  passwordWrapper: {
+    position: 'relative',
     justifyContent: 'center',
-    marginTop: 8,
-    shadowColor: '#F47125',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 3,
   },
-  submitButtonDisabled: {
-    opacity: 0.7,
+  passwordInput: {
+    paddingRight: 42,
   },
-  submitButtonText: {
+  eyeButton: {
+    position: 'absolute',
+    right: 12,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  primaryButton: {
+    height: 44,
+    backgroundColor: '#F47125',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  primaryButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '600',
   },
-  registerPrompt: {
+  buttonDisabled: {
+    opacity: 0.65,
+  },
+  dividerContainer: {
+    position: 'relative',
+    marginVertical: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dividerLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: '#E2E8F0',
+  },
+  dividerPill: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 10,
+  },
+  dividerText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  outlineButton: {
+    height: 44,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 8,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    gap: 8,
+  },
+  outlineButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#0F172A',
+  },
+  bottomPrompt: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 20,
   },
-  registerPromptText: {
-    fontSize: 14,
-    color: '#64748B',
-  },
-  registerLinkText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#F47125',
-  },
-  demoButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 16,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 10,
-    backgroundColor: '#F8FAFC',
-  },
-  demoButtonText: {
+  promptText: {
     fontSize: 13,
-    color: '#64748B',
+    color: '#0F172A',
+  },
+  linkUnderline: {
+    fontSize: 13,
+    color: '#0F172A',
+    textDecorationLine: 'underline',
     fontWeight: '600',
-    marginLeft: 6,
+  },
+  legalFooter: {
+    marginTop: 24,
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  legalText: {
+    fontSize: 10,
+    color: '#94A3B8',
+    textAlign: 'center',
+    lineHeight: 14,
+    maxWidth: 340,
+  },
+  legalLink: {
+    color: '#F47125',
+    textDecorationLine: 'underline',
   },
 });
-

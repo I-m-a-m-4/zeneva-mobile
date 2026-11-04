@@ -4,7 +4,6 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  TextInput,
   StyleSheet,
   Linking,
   Alert,
@@ -15,6 +14,8 @@ import type { RouteProp } from '@react-navigation/native';
 import type { CustomersStackParamList } from '@/navigation/types';
 import { useMobilePos } from '@/context/MobilePosContext';
 import { useAuth } from '@/context/AuthContext';
+import { GlowInput } from '@/components/ui/GlowInput';
+import { GlowButton } from '@/components/ui/GlowButton';
 import {
   User,
   Phone,
@@ -44,9 +45,13 @@ export function CustomerLedgerScreen() {
     return (
       <View style={styles.errorContainer}>
         <Text style={styles.errorText}>Customer profile not found.</Text>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Text style={styles.backBtnText}>Return to Directory</Text>
-        </TouchableOpacity>
+        <GlowButton
+          title="Return to Directory"
+          onPress={() => navigation.goBack()}
+          variant="outline"
+          size="default"
+          style={{ marginTop: 12 }}
+        />
       </View>
     );
   }
@@ -102,138 +107,130 @@ export function CustomerLedgerScreen() {
       if (can) {
         await Linking.openURL(url);
       } else {
-        await Linking.openURL(`sms:${cleanPhone}?body=${message}`);
+        Alert.alert('WhatsApp Unavailable', 'Could not open WhatsApp on this device.');
       }
     } catch {
-      Alert.alert('Error', 'Could not open messaging application.');
+      Alert.alert('Error', 'Could not launch WhatsApp.');
     }
   };
 
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <ArrowLeft size={20} color="#0F172A" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Customer Statement</Text>
-        </View>
-
         {/* Profile Card */}
         <View style={styles.profileCard}>
           <View style={styles.avatar}>
             <User size={32} color="#F47125" />
           </View>
           <Text style={styles.customerName}>{customer.name}</Text>
-          <View style={styles.contactDetails}>
-            {customer.phone ? (
-              <View style={styles.contactItem}>
-                <Phone size={14} color="#64748B" />
-                <Text style={styles.contactItemText}>{customer.phone}</Text>
-              </View>
-            ) : null}
-            {customer.email ? (
-              <View style={styles.contactItem}>
-                <Mail size={14} color="#64748B" />
-                <Text style={styles.contactItemText}>{customer.email}</Text>
-              </View>
-            ) : null}
-          </View>
+          {customer.phone ? (
+            <View style={styles.contactRow}>
+              <Phone size={14} color="#64748B" />
+              <Text style={styles.contactText}>{customer.phone}</Text>
+            </View>
+          ) : null}
+          {customer.email ? (
+            <View style={styles.contactRow}>
+              <Mail size={14} color="#64748B" />
+              <Text style={styles.contactText}>{customer.email}</Text>
+            </View>
+          ) : null}
         </View>
 
-        {/* Financial Highlights */}
-        <View style={styles.statsRow}>
-          <View style={[styles.statBox, localDebt > 0 && styles.statBoxDebt]}>
-            <Text style={styles.statLabel}>OUTSTANDING DEBT</Text>
-            <Text style={[styles.statValue, localDebt > 0 && styles.statValueDebt]}>
+        {/* Debt Balance Card */}
+        <View style={[styles.balanceCard, localDebt > 0 && styles.balanceCardDebt]}>
+          <View>
+            <Text style={styles.balanceLabel}>OUTSTANDING DEBT BALANCE</Text>
+            <Text style={[styles.balanceAmount, localDebt > 0 && styles.balanceAmountDebt]}>
               {currency} {localDebt.toLocaleString()}
             </Text>
           </View>
 
-          <View style={styles.statBox}>
-            <Text style={styles.statLabel}>LIFETIME SPENT</Text>
-            <Text style={styles.statValue}>
-              {currency} {(customer.totalSpent || 0).toLocaleString()}
-            </Text>
+          <View style={styles.balanceActions}>
+            <GlowButton
+              title="Record Payment"
+              icon={<PlusCircle size={16} color="#FFFFFF" />}
+              onPress={() => setShowPaymentModal(true)}
+              variant="primary"
+              size="sm"
+            />
+
+            {localDebt > 0 && customer.phone ? (
+              <GlowButton
+                title="WhatsApp Reminder"
+                icon={<MessageCircle size={16} color="#10B981" />}
+                onPress={handleSendReminder}
+                variant="outline"
+                size="sm"
+                textStyle={{ color: '#10B981' }}
+                style={{ borderColor: '#A7F3D0', marginTop: 8 }}
+              />
+            ) : null}
           </View>
         </View>
 
-        {/* Debt Actions */}
-        <View style={styles.actionRow}>
-          <TouchableOpacity
-            style={styles.payBtn}
-            onPress={() => setShowPaymentModal(true)}
-          >
-            <CreditCard size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-            <Text style={styles.payBtnText}>Record Payment</Text>
-          </TouchableOpacity>
-
-          {localDebt > 0 ? (
-            <TouchableOpacity style={styles.remindBtn} onPress={handleSendReminder}>
-              <MessageCircle size={18} color="#10B981" style={{ marginRight: 6 }} />
-              <Text style={styles.remindBtnText}>WhatsApp Reminder</Text>
-            </TouchableOpacity>
-          ) : null}
-        </View>
-
         {/* Purchase History */}
-        <Text style={styles.sectionTitle}>Transaction History ({customerReceipts.length})</Text>
+        <Text style={styles.historyTitle}>Purchase History ({customerReceipts.length})</Text>
 
         {customerReceipts.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <ReceiptIcon size={32} color="#CBD5E1" />
-            <Text style={styles.emptyTitle}>No transaction history</Text>
-            <Text style={styles.emptySubtitle}>Sales completed for this customer will appear here.</Text>
+          <View style={styles.emptyHistory}>
+            <ReceiptIcon size={36} color="#CBD5E1" />
+            <Text style={styles.emptyHistoryText}>No transactions recorded for this customer yet.</Text>
           </View>
         ) : (
           customerReceipts.map((r) => (
             <View key={r.id} style={styles.receiptCard}>
-              <View>
-                <Text style={styles.receiptId}>Receipt #{r.id}</Text>
-                <Text style={styles.receiptDate}>
-                  {new Date(r.createdAt as any).toLocaleDateString()} • {r.items.length} items
+              <View style={styles.receiptTop}>
+                <View>
+                  <Text style={styles.receiptId}>Receipt #{r.id.slice(-6).toUpperCase()}</Text>
+                  <Text style={styles.receiptDate}>
+                    {new Date(r.timestamp).toLocaleDateString()} • {r.items.length} items
+                  </Text>
+                </View>
+                <Text style={styles.receiptTotal}>
+                  {currency} {r.total.toLocaleString()}
                 </Text>
               </View>
-              <Text style={styles.receiptTotal}>
-                {currency} {r.total.toLocaleString()}
-              </Text>
+
+              <View style={styles.receiptMethodBadge}>
+                <Text style={styles.receiptMethodText}>{String(r.paymentMethod).toUpperCase()}</Text>
+              </View>
             </View>
           ))
         )}
       </ScrollView>
 
-      {/* Record Debt Payment Modal */}
+      {/* Record Payment Modal with GlowInput */}
       <Modal visible={showPaymentModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Record Debt Payment</Text>
+              <Text style={styles.modalTitle}>Record Debt Repayment</Text>
               <TouchableOpacity onPress={() => setShowPaymentModal(false)}>
                 <X size={22} color="#64748B" />
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.modalSubtitle}>
-              Current Outstanding Balance: {currency} {localDebt.toLocaleString()}
+            <Text style={styles.modalDesc}>
+              Enter amount received from {customer.name} to credit towards outstanding balance:
             </Text>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Amount Paid ({currency}) *</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="0.00"
-                placeholderTextColor="#94A3B8"
-                keyboardType="numeric"
-                value={paymentAmount}
-                onChangeText={setPaymentAmount}
-                autoFocus
-              />
-            </View>
+            <GlowInput
+              label={`Amount Received (${currency})`}
+              placeholder="0.00"
+              keyboardType="numeric"
+              value={paymentAmount}
+              onChangeText={setPaymentAmount}
+              leftIcon={<DollarSign size={18} color="#94A3B8" />}
+            />
 
-            <TouchableOpacity style={styles.modalSubmitBtn} onPress={handleRecordPayment}>
-              <Text style={styles.modalSubmitBtnText}>Credit Customer Balance</Text>
-            </TouchableOpacity>
+            <GlowButton
+              title="Apply Credit to Ledger"
+              onPress={handleRecordPayment}
+              variant="primary"
+              size="default"
+              style={{ marginTop: 14 }}
+            />
           </View>
         </View>
       </Modal>
@@ -250,241 +247,6 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 40,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  profileCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 20,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    marginBottom: 14,
-  },
-  avatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#FFF7ED',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  customerName: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  contactDetails: {
-    flexDirection: 'row',
-    gap: 16,
-    marginTop: 6,
-  },
-  contactItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  contactItemText: {
-    fontSize: 13,
-    color: '#64748B',
-  },
-  statsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 14,
-  },
-  statBox: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  statBoxDebt: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FCA5A5',
-  },
-  statLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#64748B',
-    letterSpacing: 0.5,
-  },
-  statValue: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: '#0F172A',
-    marginTop: 4,
-  },
-  statValueDebt: {
-    color: '#DC2626',
-  },
-  actionRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 20,
-  },
-  payBtn: {
-    flex: 1,
-    backgroundColor: '#F47125',
-    borderRadius: 12,
-    height: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  payBtnText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  remindBtn: {
-    flex: 1,
-    backgroundColor: '#F0FDF4',
-    borderWidth: 1,
-    borderColor: '#BBF7D0',
-    borderRadius: 12,
-    height: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  remindBtnText: {
-    color: '#10B981',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#0F172A',
-    marginBottom: 10,
-  },
-  receiptCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  receiptId: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-  receiptDate: {
-    fontSize: 12,
-    color: '#94A3B8',
-    marginTop: 2,
-  },
-  receiptTotal: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  emptyCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 24,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  emptyTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#0F172A',
-    marginTop: 8,
-  },
-  emptySubtitle: {
-    fontSize: 12,
-    color: '#64748B',
-    marginTop: 2,
-    textAlign: 'center',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.6)',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  modalCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  modalSubtitle: {
-    fontSize: 13,
-    color: '#64748B',
-    marginBottom: 16,
-  },
-  inputGroup: {
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#334155',
-    marginBottom: 6,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 48,
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-  modalSubmitBtn: {
-    backgroundColor: '#F47125',
-    borderRadius: 12,
-    height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalSubmitBtnText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-  },
   errorContainer: {
     flex: 1,
     alignItems: 'center',
@@ -494,16 +256,158 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 16,
     color: '#0F172A',
+    fontWeight: '600',
+  },
+  profileCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 16,
+    padding: 20,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  avatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#FFF7ED',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 12,
   },
-  backBtn: {
-    backgroundColor: '#F47125',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  backBtnText: {
-    color: '#FFFFFF',
+  customerName: {
+    fontSize: 18,
     fontWeight: '700',
+    color: '#0F172A',
+  },
+  contactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+  },
+  contactText: {
+    fontSize: 13,
+    color: '#64748B',
+  },
+  balanceCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 20,
+  },
+  balanceCardDebt: {
+    borderColor: '#FCA5A5',
+    backgroundColor: '#FEF2F2',
+  },
+  balanceLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+    letterSpacing: 0.5,
+  },
+  balanceAmount: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginTop: 4,
+  },
+  balanceAmountDebt: {
+    color: '#DC2626',
+  },
+  balanceActions: {
+    marginTop: 14,
+  },
+  historyTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 12,
+  },
+  emptyHistory: {
+    padding: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyHistoryText: {
+    fontSize: 13,
+    color: '#94A3B8',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  receiptCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+  },
+  receiptTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  receiptId: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+  receiptDate: {
+    fontSize: 12,
+    color: '#94A3B8',
+    marginTop: 2,
+  },
+  receiptTotal: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  receiptMethodBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginTop: 8,
+  },
+  receiptMethodText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  modalDesc: {
+    fontSize: 13,
+    color: '#64748B',
+    lineHeight: 18,
+    marginBottom: 12,
   },
 });

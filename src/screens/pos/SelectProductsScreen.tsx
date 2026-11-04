@@ -2,7 +2,6 @@ import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   FlatList,
   StyleSheet,
@@ -10,13 +9,18 @@ import {
   Modal,
   Alert,
   RefreshControl,
+  Image,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { PosStackParamList } from '@/navigation/types';
 import { useMobilePos } from '@/context/MobilePosContext';
 import { useAuth } from '@/context/AuthContext';
+import { useI18n } from '@/context/i18n-context';
 import type { Product } from '@/types';
+import { smartSearchMatch } from '@/lib/utils';
+import { GlowInput } from '@/components/ui/GlowInput';
+import { GlowButton } from '@/components/ui/GlowButton';
 import {
   Search,
   Camera,
@@ -26,9 +30,29 @@ import {
   PauseCircle,
   X,
   Package,
-  Check,
-  RefreshCw,
+  Shirt,
+  Smartphone,
+  Pill,
+  Coffee,
+  ArrowRight,
 } from 'lucide-react-native';
+
+function renderCategoryIcon(category?: string, size = 16) {
+  const cat = category?.toLowerCase() || '';
+  if (cat.includes('cloth') || cat.includes('fashion') || cat.includes('apparel') || cat.includes('wear')) {
+    return <Shirt size={size} color="#F47125" />;
+  }
+  if (cat.includes('phone') || cat.includes('elect') || cat.includes('gadget') || cat.includes('tech')) {
+    return <Smartphone size={size} color="#F47125" />;
+  }
+  if (cat.includes('health') || cat.includes('med') || cat.includes('pharm') || cat.includes('pill')) {
+    return <Pill size={size} color="#F47125" />;
+  }
+  if (cat.includes('bev') || cat.includes('food') || cat.includes('cafe') || cat.includes('coffee')) {
+    return <Coffee size={size} color="#F47125" />;
+  }
+  return <Package size={size} color="#F47125" />;
+}
 
 export function SelectProductsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<PosStackParamList>>();
@@ -49,11 +73,13 @@ export function SelectProductsScreen() {
     resumeHeldSale,
   } = useMobilePos();
   const { business } = useAuth();
+  const { t } = useI18n();
 
   const [search, setSearch] = useState('');
   const [showScanner, setShowScanner] = useState(false);
   const [showHeldSalesModal, setShowHeldSalesModal] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [manualCode, setManualCode] = useState('');
 
   const currency = business?.settings?.currency || 'NGN';
 
@@ -63,21 +89,25 @@ export function SelectProductsScreen() {
     setIsRefreshing(false);
   };
 
-  // Filter products by search and category
+  // Filter products using smartSearchMatch
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
       const matchCat = selectedCategory === 'All' || p.category === selectedCategory;
-      const matchSearch =
-        !search.trim() ||
-        p.name.toLowerCase().includes(search.toLowerCase()) ||
-        (p.barcode && p.barcode.includes(search)) ||
-        (p.sku && p.sku.toLowerCase().includes(search.toLowerCase()));
-      return matchCat && matchSearch;
+      if (!matchCat) return false;
+      if (!search.trim()) return true;
+
+      return (
+        smartSearchMatch(p.name, search) ||
+        smartSearchMatch(p.sku, search) ||
+        smartSearchMatch(p.barcode, search) ||
+        smartSearchMatch(p.category, search)
+      );
     });
   }, [products, selectedCategory, search]);
 
   const handleBarcodeScanned = (code: string) => {
     setShowScanner(false);
+    setManualCode('');
     const found = products.find((p) => p.barcode === code || p.sku === code);
     if (found) {
       addToCart(found);
@@ -91,66 +121,79 @@ export function SelectProductsScreen() {
     const itemInCart = cart.find((c) => c.product.id === item.id);
     const currentQty = itemInCart ? itemInCart.quantity : 0;
     const isOutOfStock = (item.stock || 0) <= 0;
+    const isService =
+      item.categoryType === 'service' ||
+      item.category?.toLowerCase() === 'service' ||
+      item.category?.toLowerCase() === 'services';
 
     return (
       <View style={styles.productCard}>
-        <View style={styles.productHeader}>
-          <View style={styles.productBadge}>
-            <Package size={16} color="#F47125" />
-          </View>
-          <View style={styles.stockStatus}>
-            <View
-              style={[
-                styles.stockDot,
-                isOutOfStock
-                  ? styles.stockDotRed
-                  : (item.stock || 0) <= (item.lowStockThreshold || 5)
-                  ? styles.stockDotAmber
-                  : styles.stockDotGreen,
-              ]}
+        {/* Product Media Header */}
+        <View style={styles.imageContainer}>
+          {item.imageUrl ? (
+            <Image
+              source={{ uri: item.imageUrl }}
+              style={styles.productImage}
+              resizeMode="cover"
             />
-            <Text style={styles.stockText}>
-              {isOutOfStock ? 'Out of stock' : `${item.stock || 0} in stock`}
-            </Text>
-          </View>
+          ) : (
+            <View style={styles.placeholderImage}>
+              {renderCategoryIcon(item.category, 28)}
+            </View>
+          )}
+
+          {/* Out of Stock / Service Badge */}
+          {isService ? (
+            <View style={styles.serviceBadge}>
+              <Text style={styles.serviceBadgeText}>{t('pos.serviceBadge')}</Text>
+            </View>
+          ) : isOutOfStock ? (
+            <View style={styles.outOfStockBadge}>
+              <Text style={styles.outOfStockBadgeText}>{t('pos.outOfStock')}</Text>
+            </View>
+          ) : null}
         </View>
 
-        <Text style={styles.productName} numberOfLines={2}>
-          {item.name}
-        </Text>
-        {item.sku ? <Text style={styles.productSku}>SKU: {item.sku}</Text> : null}
-
-        <View style={styles.productFooter}>
-          <Text style={styles.productPrice}>
-            {currency} {item.price.toLocaleString()}
+        {/* Product Details */}
+        <View style={styles.cardContent}>
+          <Text style={styles.productName} numberOfLines={2}>
+            {item.name}
           </Text>
+          {item.sku ? <Text style={styles.productSku}>SKU: {item.sku}</Text> : null}
 
-          {currentQty > 0 ? (
-            <View style={styles.qtyControls}>
+          <View style={styles.productFooter}>
+            <Text style={styles.productPrice}>
+              {currency} {item.price.toLocaleString()}
+            </Text>
+
+            {currentQty > 0 ? (
+              <View style={styles.qtyControls}>
+                <TouchableOpacity
+                  style={styles.qtyButton}
+                  onPress={() => removeFromCart(item.id)}
+                >
+                  <Minus size={14} color="#0F172A" />
+                </TouchableOpacity>
+                <Text style={styles.qtyText}>{currentQty}</Text>
+                <TouchableOpacity
+                  style={[styles.qtyButton, styles.qtyButtonAdd]}
+                  onPress={() => addToCart(item)}
+                >
+                  <Plus size={14} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            ) : (
               <TouchableOpacity
-                style={styles.qtyButton}
-                onPress={() => removeFromCart(item.id)}
-              >
-                <Minus size={14} color="#0F172A" />
-              </TouchableOpacity>
-              <Text style={styles.qtyText}>{currentQty}</Text>
-              <TouchableOpacity
-                style={[styles.qtyButton, styles.qtyButtonAdd]}
+                style={[styles.addButton, isOutOfStock && styles.addButtonDisabled]}
                 onPress={() => addToCart(item)}
+                disabled={isOutOfStock}
+                activeOpacity={0.8}
               >
-                <Plus size={14} color="#FFFFFF" />
+                <Plus size={16} color="#FFFFFF" />
+                <Text style={styles.addButtonText}>Add</Text>
               </TouchableOpacity>
-            </View>
-          ) : (
-            <TouchableOpacity
-              style={[styles.addButton, isOutOfStock && styles.addButtonDisabled]}
-              onPress={() => addToCart(item)}
-              disabled={isOutOfStock}
-            >
-              <Plus size={16} color="#FFFFFF" />
-              <Text style={styles.addButtonText}>Add</Text>
-            </TouchableOpacity>
-          )}
+            )}
+          </View>
         </View>
       </View>
     );
@@ -160,24 +203,29 @@ export function SelectProductsScreen() {
     <View style={styles.container}>
       {/* Top Search & Actions Bar */}
       <View style={styles.searchBarContainer}>
-        <View style={styles.searchInputWrapper}>
-          <Search size={18} color="#94A3B8" style={{ marginRight: 8 }} />
-          <TextInput
-            style={styles.searchInput}
+        <View style={{ flex: 1 }}>
+          <GlowInput
             placeholder="Search items, SKU, barcode..."
-            placeholderTextColor="#94A3B8"
             value={search}
             onChangeText={setSearch}
+            leftIcon={<Search size={18} color="#94A3B8" />}
+            rightIcon={
+              search ? (
+                <TouchableOpacity onPress={() => setSearch('')}>
+                  <X size={16} color="#94A3B8" />
+                </TouchableOpacity>
+              ) : undefined
+            }
+            containerStyle={{ marginVertical: 0 }}
           />
-          {search ? (
-            <TouchableOpacity onPress={() => setSearch('')}>
-              <X size={16} color="#94A3B8" />
-            </TouchableOpacity>
-          ) : null}
         </View>
 
         {/* Barcode Camera Scanner Button */}
-        <TouchableOpacity style={styles.iconActionButton} onPress={() => setShowScanner(true)}>
+        <TouchableOpacity
+          style={styles.iconActionButton}
+          onPress={() => setShowScanner(true)}
+          activeOpacity={0.7}
+        >
           <Camera size={20} color="#0F172A" />
         </TouchableOpacity>
 
@@ -186,6 +234,7 @@ export function SelectProductsScreen() {
           <TouchableOpacity
             style={[styles.iconActionButton, styles.heldBadgeActive]}
             onPress={() => setShowHeldSalesModal(true)}
+            activeOpacity={0.7}
           >
             <PauseCircle size={20} color="#F47125" />
             <View style={styles.heldCountBadge}>
@@ -202,13 +251,18 @@ export function SelectProductsScreen() {
           showsHorizontalScrollIndicator={false}
           data={categories}
           keyExtractor={(item) => item}
+          contentContainerStyle={{ paddingHorizontal: 16 }}
           renderItem={({ item }) => {
             const isSelected = selectedCategory === item;
             return (
               <TouchableOpacity
                 style={[styles.categoryPill, isSelected && styles.categoryPillSelected]}
                 onPress={() => setSelectedCategory(item)}
+                activeOpacity={0.7}
               >
+                <View style={styles.categoryPillIcon}>
+                  {renderCategoryIcon(item, 14)}
+                </View>
                 <Text
                   style={[
                     styles.categoryPillText,
@@ -273,16 +327,18 @@ export function SelectProductsScreen() {
                 holdCurrentSale();
                 Alert.alert('Sale Held', 'Cart preserved in held sales.');
               }}
+              activeOpacity={0.7}
             >
               <PauseCircle size={18} color="#64748B" />
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.checkoutButton}
+            <GlowButton
+              title="Select Customer"
+              icon={<ArrowRight size={16} color="#FFFFFF" />}
               onPress={() => navigation.navigate('CustomerSelect')}
-            >
-              <Text style={styles.checkoutButtonText}>Select Customer</Text>
-            </TouchableOpacity>
+              variant="primary"
+              size="sm"
+            />
           </View>
         </View>
       ) : null}
@@ -324,7 +380,7 @@ export function SelectProductsScreen() {
         </View>
       </Modal>
 
-      {/* Barcode Camera Modal Mock / Prompt */}
+      {/* Barcode Camera Modal with GlowInput */}
       <Modal visible={showScanner} animationType="fade" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -337,12 +393,19 @@ export function SelectProductsScreen() {
             <Text style={styles.scannerPrompt}>
               Aim camera at 1D/2D barcode or enter SKU manually:
             </Text>
-            <TextInput
-              style={styles.manualBarcodeInput}
+            <GlowInput
               placeholder="Enter barcode or SKU..."
-              placeholderTextColor="#94A3B8"
-              onSubmitEditing={(e) => handleBarcodeScanned(e.nativeEvent.text)}
+              value={manualCode}
+              onChangeText={setManualCode}
+              onSubmitEditing={() => handleBarcodeScanned(manualCode)}
               autoFocus
+            />
+            <GlowButton
+              title="Search Barcode"
+              onPress={() => handleBarcodeScanned(manualCode)}
+              variant="primary"
+              size="default"
+              style={{ marginTop: 12 }}
             />
           </View>
         </View>
@@ -364,26 +427,10 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     gap: 8,
   },
-  searchInputWrapper: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    paddingHorizontal: 12,
-    height: 46,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 14,
-    color: '#0F172A',
-  },
   iconActionButton: {
-    width: 46,
-    height: 46,
-    borderRadius: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 8,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -411,110 +458,160 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   categoriesContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
   categoryPill: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E2E8F0',
     marginRight: 8,
+    gap: 6,
   },
   categoryPillSelected: {
-    backgroundColor: '#0F172A',
-    borderColor: '#0F172A',
+    backgroundColor: '#FFF7ED',
+    borderColor: '#F47125',
+  },
+  categoryPillIcon: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   categoryPillText: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#64748B',
-  },
-  categoryPillTextSelected: {
-    color: '#FFFFFF',
-  },
-  productList: {
-    padding: 12,
-    paddingBottom: 100,
-  },
-  productCard: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 14,
-    margin: 6,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
-    justifyContent: 'space-between',
-  },
-  productHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  productBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: '#FFF7ED',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stockStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  stockDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 4,
-  },
-  stockDotGreen: { backgroundColor: '#10B981' },
-  stockDotAmber: { backgroundColor: '#F59E0B' },
-  stockDotRed: { backgroundColor: '#EF4444' },
-  stockText: {
-    fontSize: 11,
     color: '#64748B',
     fontWeight: '500',
   },
-  productName: {
+  categoryPillTextSelected: {
+    color: '#F47125',
+    fontWeight: '600',
+  },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  loadingText: {
+    marginTop: 12,
     fontSize: 14,
-    fontWeight: '700',
+    color: '#64748B',
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '600',
     color: '#0F172A',
-    marginBottom: 4,
+    marginTop: 12,
+  },
+  emptySubtitle: {
+    fontSize: 13,
+    color: '#64748B',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  productList: {
+    padding: 10,
+    paddingBottom: 90,
+  },
+  productCard: {
+    flex: 1,
+    margin: 6,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+  },
+  imageContainer: {
+    width: '100%',
+    aspectRatio: 4 / 3,
+    backgroundColor: '#F8FAFC',
+    position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  productImage: {
+    width: '100%',
+    height: '100%',
+  },
+  placeholderImage: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+  },
+  serviceBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    borderColor: 'rgba(59, 130, 246, 0.3)',
+    borderWidth: 1,
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  serviceBadgeText: {
+    fontSize: 10,
+    color: '#3B82F6',
+    fontWeight: '600',
+  },
+  outOfStockBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+    borderWidth: 1,
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  outOfStockBadgeText: {
+    fontSize: 10,
+    color: '#EF4444',
+    fontWeight: '600',
+  },
+  cardContent: {
+    padding: 10,
+    flex: 1,
+    justifyContent: 'space-between',
+  },
+  productName: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#0F172A',
+    lineHeight: 18,
+    minHeight: 36,
   },
   productSku: {
     fontSize: 11,
     color: '#94A3B8',
-    marginBottom: 8,
+    marginTop: 2,
   },
   productFooter: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 8,
+    alignItems: 'center',
+    marginTop: 10,
   },
   productPrice: {
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 13,
+    fontWeight: '700',
     color: '#0F172A',
   },
   addButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F47125',
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: 6,
+    gap: 4,
   },
   addButtonDisabled: {
     backgroundColor: '#CBD5E1',
@@ -522,55 +619,30 @@ const styles = StyleSheet.create({
   addButtonText: {
     color: '#FFFFFF',
     fontSize: 12,
-    fontWeight: '700',
-    marginLeft: 4,
+    fontWeight: '600',
   },
   qtyControls: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F1F5F9',
-    borderRadius: 8,
+    borderRadius: 6,
     padding: 2,
   },
   qtyButton: {
     width: 26,
     height: 26,
-    borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
+    borderRadius: 4,
   },
   qtyButtonAdd: {
     backgroundColor: '#F47125',
   },
   qtyText: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#0F172A',
     paddingHorizontal: 8,
-  },
-  centered: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 32,
-  },
-  loadingText: {
-    fontSize: 14,
-    color: '#64748B',
-    marginTop: 12,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#0F172A',
-    marginTop: 12,
-  },
-  emptySubtitle: {
-    fontSize: 13,
-    color: '#64748B',
-    marginTop: 4,
-    textAlign: 'center',
   },
   cartFooter: {
     position: 'absolute',
@@ -585,48 +657,44 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    elevation: 8,
   },
   cartSummary: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
   },
   cartIconWrapper: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    position: 'relative',
+    width: 38,
+    height: 38,
+    borderRadius: 8,
     backgroundColor: '#FFF7ED',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
   },
   cartBadge: {
     position: 'absolute',
     top: -4,
     right: -4,
     backgroundColor: '#F47125',
-    borderRadius: 10,
-    width: 20,
-    height: 20,
+    borderRadius: 8,
+    width: 16,
+    height: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cartBadgeText: {
     color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '800',
+    fontSize: 9,
+    fontWeight: '700',
   },
   cartItemsCountText: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#64748B',
   },
   cartTotalText: {
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '700',
     color: '#0F172A',
   },
   cartActions: {
@@ -635,39 +703,28 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   holdButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    backgroundColor: '#F8FAFC',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  checkoutButton: {
-    backgroundColor: '#F47125',
-    borderRadius: 12,
-    paddingHorizontal: 20,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkoutButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
+    backgroundColor: '#FFFFFF',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    backgroundColor: 'rgba(15, 23, 42, 0.4)',
     justifyContent: 'center',
-    padding: 24,
+    alignItems: 'center',
+    padding: 20,
   },
   modalCard: {
+    width: '100%',
+    maxWidth: 400,
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    borderRadius: 16,
     padding: 20,
-    maxHeight: '80%',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -690,7 +747,7 @@ const styles = StyleSheet.create({
   },
   heldItemTitle: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#0F172A',
   },
   heldItemSubtitle: {
@@ -699,28 +756,21 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   resumeButton: {
-    backgroundColor: '#0F172A',
-    borderRadius: 8,
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#F47125',
+    borderRadius: 6,
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
   resumeButtonText: {
-    color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '600',
+    color: '#F47125',
   },
   scannerPrompt: {
     fontSize: 14,
     color: '#64748B',
     marginBottom: 12,
-  },
-  manualBarcodeInput: {
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 44,
-    fontSize: 14,
-    color: '#0F172A',
   },
 });

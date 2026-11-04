@@ -23,3 +23,4 @@ export function GoogleIcon({ size = 20 }: { size?: number }) {
     </Svg>
   );
 }
+

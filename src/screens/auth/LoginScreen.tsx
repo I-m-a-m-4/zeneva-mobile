@@ -2,10 +2,8 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -17,8 +15,10 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '@/navigation/types';
 import { useAuth } from '@/context/AuthContext';
 import { useI18n } from '@/context/i18n-context';
-import { Eye, EyeOff } from 'lucide-react-native';
+import { Eye, EyeOff, Mail, Lock } from 'lucide-react-native';
 import { GoogleIcon } from '@/components/common/GoogleIcon';
+import { GlowInput } from '@/components/ui/GlowInput';
+import { GlowButton } from '@/components/ui/GlowButton';
 
 export function LoginScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -120,28 +120,25 @@ export function LoginScreen() {
               </View>
             ) : null}
 
-            {/* Form Fields */}
+            {/* Form Fields with glow effect on focus */}
             <View style={styles.formGroup}>
               {/* Email */}
-              <View style={styles.inputItem}>
-                <Text style={styles.label}>{t('common.email')}</Text>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder={t('auth.emailPlaceholder')}
-                  placeholderTextColor="#94A3B8"
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  autoCorrect={false}
-                  value={email}
-                  onChangeText={(val) => {
-                    setEmail(val);
-                    if (errorMessage) setErrorMessage('');
-                  }}
-                />
-              </View>
+              <GlowInput
+                label={t('common.email')}
+                placeholder={t('auth.emailPlaceholder')}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                autoCorrect={false}
+                value={email}
+                leftIcon={<Mail size={18} color="#94A3B8" />}
+                onChangeText={(val) => {
+                  setEmail(val);
+                  if (errorMessage) setErrorMessage('');
+                }}
+              />
 
-              {/* Password */}
-              <View style={styles.inputItem}>
+              {/* Password with Forgot Link Header */}
+              <View style={styles.passwordFieldContainer}>
                 <View style={styles.labelRow}>
                   <Text style={styles.label}>{t('auth.password')}</Text>
                   <TouchableOpacity
@@ -155,45 +152,39 @@ export function LoginScreen() {
                     <Text style={styles.forgotLink}>{t('auth.forgotPasswordLink')}</Text>
                   </TouchableOpacity>
                 </View>
-                <View style={styles.passwordWrapper}>
-                  <TextInput
-                    style={[styles.textInput, styles.passwordInput]}
-                    placeholder="••••••••••••"
-                    placeholderTextColor="#94A3B8"
-                    secureTextEntry={!showPassword}
-                    value={password}
-                    onChangeText={(val) => {
-                      setPassword(val);
-                      if (errorMessage) setErrorMessage('');
-                    }}
-                  />
-                  <TouchableOpacity
-                    style={styles.eyeButton}
-                    onPress={() => setShowPassword(!showPassword)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    {showPassword ? (
-                      <EyeOff size={18} color="#64748B" />
-                    ) : (
-                      <Eye size={18} color="#64748B" />
-                    )}
-                  </TouchableOpacity>
-                </View>
+                <GlowInput
+                  placeholder="••••••••••••"
+                  secureTextEntry={!showPassword}
+                  value={password}
+                  leftIcon={<Lock size={18} color="#94A3B8" />}
+                  rightIcon={
+                    <TouchableOpacity
+                      onPress={() => setShowPassword(!showPassword)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      {showPassword ? (
+                        <EyeOff size={18} color="#64748B" />
+                      ) : (
+                        <Eye size={18} color="#64748B" />
+                      )}
+                    </TouchableOpacity>
+                  }
+                  onChangeText={(val) => {
+                    setPassword(val);
+                    if (errorMessage) setErrorMessage('');
+                  }}
+                />
               </View>
 
-              {/* Login Button */}
-              <TouchableOpacity
-                style={[styles.primaryButton, isLoading && styles.buttonDisabled]}
+              {/* Login Button with button-glow */}
+              <GlowButton
+                title={t('auth.loginButton')}
                 onPress={handleLogin}
-                disabled={isLoading}
-                activeOpacity={0.8}
-              >
-                {isLoading ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <Text style={styles.primaryButtonText}>{t('auth.loginButton')}</Text>
-                )}
-              </TouchableOpacity>
+                isLoading={isLoading}
+                variant="primary"
+                size="default"
+                style={{ marginTop: 8 }}
+              />
             </View>
 
             {/* Divider: Or continue with */}
@@ -205,14 +196,13 @@ export function LoginScreen() {
             </View>
 
             {/* Google OAuth Button */}
-            <TouchableOpacity
-              style={styles.outlineButton}
+            <GlowButton
               onPress={handleGoogleSignIn}
-              activeOpacity={0.7}
-            >
-              <GoogleIcon size={18} />
-              <Text style={styles.outlineButtonText}>Google</Text>
-            </TouchableOpacity>
+              variant="outline"
+              size="default"
+              icon={<GoogleIcon size={18} />}
+              title="Google"
+            />
 
             {/* Bottom prompt: Don't have an account? Sign up */}
             <View style={styles.bottomPrompt}>
@@ -258,7 +248,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-start',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   ghostButton: {
     paddingVertical: 8,
@@ -302,7 +292,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#64748B',
     textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: 20,
     lineHeight: 20,
   },
   errorBox: {
@@ -319,15 +309,16 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   formGroup: {
-    gap: 16,
+    gap: 12,
   },
-  inputItem: {
-    gap: 6,
+  passwordFieldContainer: {
+    width: '100%',
   },
   labelRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 4,
   },
   label: {
     fontSize: 14,
@@ -339,49 +330,9 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     textDecorationLine: 'underline',
   },
-  textInput: {
-    height: 44,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    fontSize: 14,
-    color: '#0F172A',
-    backgroundColor: '#FFFFFF',
-  },
-  passwordWrapper: {
-    position: 'relative',
-    justifyContent: 'center',
-  },
-  passwordInput: {
-    paddingRight: 42,
-  },
-  eyeButton: {
-    position: 'absolute',
-    right: 12,
-    height: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  primaryButton: {
-    height: 44,
-    backgroundColor: '#F47125',
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  buttonDisabled: {
-    opacity: 0.65,
-  },
   dividerContainer: {
     position: 'relative',
-    marginVertical: 20,
+    marginVertical: 18,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -402,22 +353,6 @@ const styles = StyleSheet.create({
     color: '#64748B',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-  },
-  outlineButton: {
-    height: 44,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 8,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    gap: 8,
-  },
-  outlineButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#0F172A',
   },
   bottomPrompt: {
     flexDirection: 'row',

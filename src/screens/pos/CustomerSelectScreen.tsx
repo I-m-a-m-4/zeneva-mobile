@@ -2,27 +2,27 @@ import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   FlatList,
   StyleSheet,
   Modal,
   Alert,
-  ActivityIndicator,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { PosStackParamList } from '@/navigation/types';
 import { useMobilePos } from '@/context/MobilePosContext';
 import { useAuth } from '@/context/AuthContext';
+import { useI18n } from '@/context/i18n-context';
 import type { Customer } from '@/types';
+import { GlowInput } from '@/components/ui/GlowInput';
+import { GlowButton } from '@/components/ui/GlowButton';
 import {
   Search,
   UserPlus,
   User,
   Check,
   ArrowRight,
-  ArrowLeft,
   X,
   Phone,
   Mail,
@@ -33,6 +33,7 @@ export function CustomerSelectScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<PosStackParamList>>();
   const { customers, selectedCustomer, selectCustomer, addCustomer, cartTotal } = useMobilePos();
   const { business } = useAuth();
+  const { t } = useI18n();
 
   const [search, setSearch] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -99,9 +100,15 @@ export function CustomerSelectScreen() {
           <Text style={styles.customerName}>{item.name}</Text>
           <View style={styles.customerMeta}>
             {item.phone ? (
-              <Text style={styles.customerMetaText}>{item.phone}</Text>
+              <View style={styles.metaRow}>
+                <Phone size={12} color="#94A3B8" />
+                <Text style={styles.customerMetaText}>{item.phone}</Text>
+              </View>
             ) : item.email ? (
-              <Text style={styles.customerMetaText}>{item.email}</Text>
+              <View style={styles.metaRow}>
+                <Mail size={12} color="#94A3B8" />
+                <Text style={styles.customerMetaText}>{item.email}</Text>
+              </View>
             ) : (
               <Text style={styles.customerMetaText}>No contact info</Text>
             )}
@@ -128,36 +135,37 @@ export function CustomerSelectScreen() {
     <View style={styles.container}>
       {/* Header Info */}
       <View style={styles.header}>
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Customer Assignment</Text>
           <Text style={styles.headerSubtitle}>
             Attach sale to a customer for debt ledger & points
           </Text>
         </View>
-        <TouchableOpacity
-          style={styles.addCustomerButton}
+        <GlowButton
+          title="New"
+          icon={<UserPlus size={16} color="#FFFFFF" />}
           onPress={() => setShowAddModal(true)}
-        >
-          <UserPlus size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-          <Text style={styles.addCustomerButtonText}>New</Text>
-        </TouchableOpacity>
+          variant="primary"
+          size="sm"
+        />
       </View>
 
-      {/* Search Input */}
-      <View style={styles.searchContainer}>
-        <Search size={18} color="#94A3B8" style={{ marginRight: 8 }} />
-        <TextInput
-          style={styles.searchInput}
+      {/* Search Input with GlowInput */}
+      <View style={styles.searchSection}>
+        <GlowInput
           placeholder="Search by name, phone or email..."
-          placeholderTextColor="#94A3B8"
           value={search}
           onChangeText={setSearch}
+          leftIcon={<Search size={18} color="#94A3B8" />}
+          rightIcon={
+            search ? (
+              <TouchableOpacity onPress={() => setSearch('')}>
+                <X size={16} color="#94A3B8" />
+              </TouchableOpacity>
+            ) : undefined
+          }
+          containerStyle={{ marginVertical: 0 }}
         />
-        {search ? (
-          <TouchableOpacity onPress={() => setSearch('')}>
-            <X size={16} color="#94A3B8" />
-          </TouchableOpacity>
-        ) : null}
       </View>
 
       {/* Guest / Walk-in option */}
@@ -205,16 +213,16 @@ export function CustomerSelectScreen() {
           </Text>
         </View>
 
-        <TouchableOpacity
-          style={styles.proceedButton}
+        <GlowButton
+          title="Proceed to Payment"
+          icon={<ArrowRight size={16} color="#FFFFFF" />}
           onPress={() => navigation.navigate('Payment')}
-        >
-          <Text style={styles.proceedButtonText}>Proceed to Payment</Text>
-          <ArrowRight size={18} color="#FFFFFF" style={{ marginLeft: 6 }} />
-        </TouchableOpacity>
+          variant="primary"
+          size="default"
+        />
       </View>
 
-      {/* Add Customer Modal */}
+      {/* Add Customer Modal with GlowInputs */}
       <Modal visible={showAddModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -225,53 +233,43 @@ export function CustomerSelectScreen() {
               </TouchableOpacity>
             </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Full Name *</Text>
-              <TextInput
-                style={styles.modalInput}
+            <View style={styles.modalForm}>
+              <GlowInput
+                label="Full Name *"
                 placeholder="e.g. Fatima Al-Mansoor"
-                placeholderTextColor="#94A3B8"
                 value={newName}
                 onChangeText={setNewName}
+                leftIcon={<User size={18} color="#94A3B8" />}
               />
-            </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Phone Number</Text>
-              <TextInput
-                style={styles.modalInput}
+              <GlowInput
+                label="Phone Number"
                 placeholder="+234..."
-                placeholderTextColor="#94A3B8"
                 keyboardType="phone-pad"
                 value={newPhone}
                 onChangeText={setNewPhone}
+                leftIcon={<Phone size={18} color="#94A3B8" />}
               />
-            </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Email Address</Text>
-              <TextInput
-                style={styles.modalInput}
-                placeholder="customer@domain.com"
-                placeholderTextColor="#94A3B8"
+              <GlowInput
+                label="Email Address"
+                placeholder="fatima@example.com"
                 keyboardType="email-address"
                 autoCapitalize="none"
                 value={newEmail}
                 onChangeText={setNewEmail}
+                leftIcon={<Mail size={18} color="#94A3B8" />}
+              />
+
+              <GlowButton
+                title="Create & Select Customer"
+                onPress={handleCreateCustomer}
+                isLoading={isSaving}
+                variant="primary"
+                size="default"
+                style={{ marginTop: 12 }}
               />
             </View>
-
-            <TouchableOpacity
-              style={[styles.saveModalButton, isSaving && { opacity: 0.7 }]}
-              onPress={handleCreateCustomer}
-              disabled={isSaving}
-            >
-              {isSaving ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
-              ) : (
-                <Text style={styles.saveModalButtonText}>Save & Select Customer</Text>
-              )}
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -290,11 +288,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingTop: 16,
-    paddingBottom: 12,
+    paddingBottom: 8,
   },
   headerTitle: {
     fontSize: 20,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#0F172A',
   },
   headerSubtitle: {
@@ -302,20 +300,11 @@ const styles = StyleSheet.create({
     color: '#64748B',
     marginTop: 2,
   },
-  addCustomerButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F47125',
-    paddingHorizontal: 14,
+  searchSection: {
+    paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 10,
   },
-  addCustomerButtonText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  searchContainer: {
+  guestCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
@@ -323,24 +312,7 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     borderRadius: 12,
     marginHorizontal: 16,
-    marginBottom: 12,
-    paddingHorizontal: 12,
-    height: 46,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 14,
-    color: '#0F172A',
-  },
-  guestCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    borderRadius: 14,
-    marginHorizontal: 16,
-    marginBottom: 12,
+    marginBottom: 8,
     padding: 14,
   },
   guestCardSelected: {
@@ -349,26 +321,26 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: 16,
-    paddingBottom: 100,
+    paddingBottom: 90,
   },
   customerCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 8,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 8,
   },
   customerCardSelected: {
     borderColor: '#F47125',
     backgroundColor: '#FFF7ED',
   },
   customerAvatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
@@ -379,15 +351,20 @@ const styles = StyleSheet.create({
   },
   customerName: {
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#0F172A',
   },
   customerMeta: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 4,
-    flexWrap: 'wrap',
     gap: 8,
+    flexWrap: 'wrap',
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   customerMetaText: {
     fontSize: 12,
@@ -397,14 +374,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEF2F2',
     borderWidth: 1,
     borderColor: '#FCA5A5',
-    borderRadius: 6,
+    borderRadius: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
   debtBadgeText: {
     fontSize: 11,
+    fontWeight: '600',
     color: '#DC2626',
-    fontWeight: '700',
   },
   checkIcon: {
     width: 26,
@@ -413,14 +390,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#F47125',
     alignItems: 'center',
     justifyContent: 'center',
+    marginLeft: 8,
   },
   emptyContainer: {
+    padding: 32,
     alignItems: 'center',
-    paddingVertical: 32,
+    justifyContent: 'center',
   },
   emptyText: {
-    color: '#94A3B8',
     fontSize: 14,
+    color: '#94A3B8',
   },
   footer: {
     position: 'absolute',
@@ -430,44 +409,33 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    elevation: 8,
   },
   footerLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#64748B',
   },
   footerTotal: {
     fontSize: 18,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  proceedButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F47125',
-    borderRadius: 12,
-    paddingHorizontal: 20,
-    height: 48,
-  },
-  proceedButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
     fontWeight: '700',
+    color: '#0F172A',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    backgroundColor: 'rgba(15, 23, 42, 0.4)',
     justifyContent: 'center',
-    padding: 24,
+    alignItems: 'center',
+    padding: 20,
   },
   modalCard: {
+    width: '100%',
+    maxWidth: 420,
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    borderRadius: 16,
     padding: 20,
   },
   modalHeader: {
@@ -481,36 +449,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0F172A',
   },
-  inputGroup: {
-    marginBottom: 14,
-  },
-  inputLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#334155',
-    marginBottom: 6,
-  },
-  modalInput: {
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 44,
-    fontSize: 14,
-    color: '#0F172A',
-  },
-  saveModalButton: {
-    backgroundColor: '#F47125',
-    borderRadius: 12,
-    height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
-  },
-  saveModalButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
+  modalForm: {
+    gap: 8,
   },
 });
-

@@ -2,10 +2,8 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -17,8 +15,10 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '@/navigation/types';
 import { useAuth } from '@/context/AuthContext';
 import { useI18n } from '@/context/i18n-context';
-import { Eye, EyeOff } from 'lucide-react-native';
+import { Eye, EyeOff, Mail, User, Store, Lock } from 'lucide-react-native';
 import { GoogleIcon } from '@/components/common/GoogleIcon';
+import { GlowInput } from '@/components/ui/GlowInput';
+import { GlowButton } from '@/components/ui/GlowButton';
 
 export function RegisterScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -115,15 +115,14 @@ export function RegisterScreen() {
             <Text style={styles.subtitle}>{t('auth.signupSubtitle')}</Text>
 
             {/* Google OAuth Button First (exactly as on signup/page.tsx line 468) */}
-            <TouchableOpacity
-              style={styles.outlineButton}
+            <GlowButton
               onPress={handleGoogleSignup}
-              activeOpacity={0.7}
+              variant="outline"
+              size="default"
+              icon={<GoogleIcon size={18} />}
+              title={t('auth.continueWithGoogle')}
               disabled={isLoading}
-            >
-              <GoogleIcon size={18} />
-              <Text style={styles.outlineButtonText}>{t('auth.continueWithGoogle')}</Text>
-            </TouchableOpacity>
+            />
 
             {/* Divider: Or sign up with email */}
             <View style={styles.dividerContainer}>
@@ -140,75 +139,58 @@ export function RegisterScreen() {
               </View>
             ) : null}
 
-            {/* Form Fields */}
+            {/* Form Fields with glow effect on focus */}
             <View style={styles.formGroup}>
               {/* Email */}
-              <View style={styles.inputItem}>
-                <Text style={styles.label}>{t('common.email')}</Text>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder={t('auth.emailPlaceholder')}
-                  placeholderTextColor="#94A3B8"
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  autoCorrect={false}
-                  value={email}
-                  onChangeText={(val) => {
-                    setEmail(val);
-                    if (errorMessage) setErrorMessage('');
-                  }}
-                />
-              </View>
+              <GlowInput
+                label={t('common.email')}
+                placeholder={t('auth.emailPlaceholder')}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                autoCorrect={false}
+                value={email}
+                leftIcon={<Mail size={18} color="#94A3B8" />}
+                onChangeText={(val) => {
+                  setEmail(val);
+                  if (errorMessage) setErrorMessage('');
+                }}
+              />
 
               {/* Your Name */}
-              <View style={styles.inputItem}>
-                <Text style={styles.label}>{t('auth.nameLabel')}</Text>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder={t('auth.namePlaceholder')}
-                  placeholderTextColor="#94A3B8"
-                  autoCapitalize="words"
-                  value={name}
-                  onChangeText={(val) => {
-                    setName(val);
-                    if (errorMessage) setErrorMessage('');
-                  }}
-                />
-              </View>
+              <GlowInput
+                label={t('auth.nameLabel')}
+                placeholder={t('auth.namePlaceholder')}
+                autoCapitalize="words"
+                value={name}
+                leftIcon={<User size={18} color="#94A3B8" />}
+                onChangeText={(val) => {
+                  setName(val);
+                  if (errorMessage) setErrorMessage('');
+                }}
+              />
 
               {/* Store / Business Name */}
-              <View style={styles.inputItem}>
-                <Text style={styles.label}>{t('auth.businessNameLabel')}</Text>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder={t('auth.businessNamePlaceholder')}
-                  placeholderTextColor="#94A3B8"
-                  autoCapitalize="words"
-                  value={businessName}
-                  onChangeText={(val) => {
-                    setBusinessName(val);
-                    if (errorMessage) setErrorMessage('');
-                  }}
-                />
-              </View>
+              <GlowInput
+                label={t('auth.businessNameLabel')}
+                placeholder={t('auth.businessNamePlaceholder')}
+                autoCapitalize="words"
+                value={businessName}
+                leftIcon={<Store size={18} color="#94A3B8" />}
+                onChangeText={(val) => {
+                  setBusinessName(val);
+                  if (errorMessage) setErrorMessage('');
+                }}
+              />
 
               {/* Password */}
-              <View style={styles.inputItem}>
-                <Text style={styles.label}>{t('auth.password')}</Text>
-                <View style={styles.passwordWrapper}>
-                  <TextInput
-                    style={[styles.textInput, styles.passwordInput]}
-                    placeholder="••••••••••••"
-                    placeholderTextColor="#94A3B8"
-                    secureTextEntry={!showPassword}
-                    value={password}
-                    onChangeText={(val) => {
-                      setPassword(val);
-                      if (errorMessage) setErrorMessage('');
-                    }}
-                  />
+              <GlowInput
+                label={t('auth.password')}
+                placeholder="••••••••••••"
+                secureTextEntry={!showPassword}
+                value={password}
+                leftIcon={<Lock size={18} color="#94A3B8" />}
+                rightIcon={
                   <TouchableOpacity
-                    style={styles.eyeButton}
                     onPress={() => setShowPassword(!showPassword)}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
@@ -218,22 +200,22 @@ export function RegisterScreen() {
                       <Eye size={18} color="#64748B" />
                     )}
                   </TouchableOpacity>
-                </View>
-              </View>
+                }
+                onChangeText={(val) => {
+                  setPassword(val);
+                  if (errorMessage) setErrorMessage('');
+                }}
+              />
 
-              {/* Submit Button */}
-              <TouchableOpacity
-                style={[styles.primaryButton, isLoading && styles.buttonDisabled]}
+              {/* Submit Button with button-glow */}
+              <GlowButton
+                title={t('auth.createAccountButton')}
                 onPress={handleRegister}
-                disabled={isLoading}
-                activeOpacity={0.8}
-              >
-                {isLoading ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <Text style={styles.primaryButtonText}>{t('auth.createAccountButton')}</Text>
-                )}
-              </TouchableOpacity>
+                isLoading={isLoading}
+                variant="primary"
+                size="default"
+                style={{ marginTop: 8 }}
+              />
             </View>
 
             {/* Bottom prompt: Already have an account? Sign in */}
@@ -280,7 +262,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-start',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   ghostButton: {
     paddingVertical: 8,
@@ -327,22 +309,6 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     lineHeight: 20,
   },
-  outlineButton: {
-    height: 44,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 8,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    gap: 8,
-  },
-  outlineButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#0F172A',
-  },
   dividerContainer: {
     position: 'relative',
     marginVertical: 18,
@@ -381,55 +347,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   formGroup: {
-    gap: 14,
-  },
-  inputItem: {
-    gap: 6,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#0F172A',
-  },
-  textInput: {
-    height: 44,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    fontSize: 14,
-    color: '#0F172A',
-    backgroundColor: '#FFFFFF',
-  },
-  passwordWrapper: {
-    position: 'relative',
-    justifyContent: 'center',
-  },
-  passwordInput: {
-    paddingRight: 42,
-  },
-  eyeButton: {
-    position: 'absolute',
-    right: 12,
-    height: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  primaryButton: {
-    height: 44,
-    backgroundColor: '#F47125',
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  buttonDisabled: {
-    opacity: 0.65,
+    gap: 10,
   },
   bottomPrompt: {
     flexDirection: 'row',

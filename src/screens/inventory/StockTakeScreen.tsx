@@ -6,23 +6,23 @@ import {
   TouchableOpacity,
   FlatList,
   StyleSheet,
-  ActivityIndicator,
   Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useMobilePos } from '@/context/MobilePosContext';
 import { useAuth } from '@/context/AuthContext';
 import type { Product } from '@/types';
+import { GlowInput } from '@/components/ui/GlowInput';
+import { GlowButton } from '@/components/ui/GlowButton';
 import {
   Search,
   CheckCircle2,
   AlertTriangle,
-  ArrowLeft,
   RotateCcw,
   Plus,
   Minus,
   Save,
-  Barcode,
+  X,
 } from 'lucide-react-native';
 
 interface CountMap {
@@ -43,6 +43,8 @@ export function StockTakeScreen() {
     return init;
   });
   const [isCommitting, setIsCommitting] = useState(false);
+
+  const currency = business?.settings?.currency || 'NGN';
 
   const filtered = useMemo(() => {
     if (!search.trim()) return products;
@@ -107,57 +109,49 @@ export function StockTakeScreen() {
   };
 
   const renderItem = ({ item }: { item: Product }) => {
-    const systemQty = item.stock || 0;
-    const countedQty = counts[item.id] !== undefined ? counts[item.id] : systemQty;
-    const diff = countedQty - systemQty;
+    const current = item.stock || 0;
+    const counted = counts[item.id] !== undefined ? counts[item.id] : current;
+    const variance = counted - current;
 
     return (
-      <View style={styles.card}>
-        <View style={styles.cardTop}>
+      <View style={styles.stockItemCard}>
+        <View style={styles.itemHeader}>
           <View style={{ flex: 1 }}>
             <Text style={styles.itemName}>{item.name}</Text>
-            <Text style={styles.itemMeta}>
-              {item.sku ? `SKU: ${item.sku}` : ''} {item.barcode ? `• Barcode: ${item.barcode}` : ''}
+            <Text style={styles.itemSku}>
+              SKU: {item.sku || 'N/A'} • System Stock: {current}
             </Text>
           </View>
 
-          {/* Difference badge */}
-          {diff !== 0 ? (
+          {variance !== 0 ? (
             <View
               style={[
-                styles.diffBadge,
-                diff > 0 ? styles.diffBadgeGreen : styles.diffBadgeRed,
+                styles.varianceBadge,
+                variance > 0 ? styles.variancePositive : styles.varianceNegative,
               ]}
             >
               <Text
                 style={[
-                  styles.diffText,
-                  diff > 0 ? styles.diffTextGreen : styles.diffTextRed,
+                  styles.varianceText,
+                  variance > 0 ? styles.varianceTextPositive : styles.varianceTextNegative,
                 ]}
               >
-                {diff > 0 ? `+${diff}` : diff}
+                {variance > 0 ? `+${variance}` : variance}
               </Text>
             </View>
           ) : (
-            <View style={styles.matchBadge}>
-              <CheckCircle2 size={16} color="#10B981" />
+            <View style={styles.varianceBadgeNeutral}>
+              <Text style={styles.varianceTextNeutral}>Matched</Text>
             </View>
           )}
         </View>
 
-        <View style={styles.cardBottom}>
-          <View>
-            <Text style={styles.metricLabel}>System Record</Text>
-            <Text style={styles.metricValue}>
-              {systemQty} {item.unit || 'pcs'}
-            </Text>
-          </View>
-
-          {/* Stepper Count Controls */}
+        <View style={styles.countRow}>
+          <Text style={styles.countLabel}>Physical Count:</Text>
           <View style={styles.stepperContainer}>
             <TouchableOpacity
               style={styles.stepBtn}
-              onPress={() => updateCount(item.id, countedQty - 1)}
+              onPress={() => updateCount(item.id, counted - 1)}
             >
               <Minus size={16} color="#0F172A" />
             </TouchableOpacity>
@@ -165,13 +159,13 @@ export function StockTakeScreen() {
             <TextInput
               style={styles.countInput}
               keyboardType="numeric"
-              value={countedQty.toString()}
-              onChangeText={(val) => updateCount(item.id, parseInt(val, 10) || 0)}
+              value={counted.toString()}
+              onChangeText={(txt) => updateCount(item.id, parseInt(txt, 10) || 0)}
             />
 
             <TouchableOpacity
               style={[styles.stepBtn, styles.stepBtnAdd]}
-              onPress={() => updateCount(item.id, countedQty + 1)}
+              onPress={() => updateCount(item.id, counted + 1)}
             >
               <Plus size={16} color="#FFFFFF" />
             </TouchableOpacity>
@@ -183,56 +177,43 @@ export function StockTakeScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <ArrowLeft size={20} color="#0F172A" />
-        </TouchableOpacity>
-        <View style={{ flex: 1, marginLeft: 12 }}>
-          <Text style={styles.headerTitle}>Rapid Stock-Take</Text>
-          <Text style={styles.headerSubtitle}>
-            Physical audit & inventory reconciliation
-          </Text>
-        </View>
-      </View>
-
-      {/* Search */}
-      <View style={styles.searchWrapper}>
-        <Search size={18} color="#94A3B8" style={{ marginRight: 8 }} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Filter by name, barcode or SKU..."
-          placeholderTextColor="#94A3B8"
+      {/* Top Search Bar */}
+      <View style={styles.searchSection}>
+        <GlowInput
+          placeholder="Filter products to count..."
           value={search}
           onChangeText={setSearch}
+          leftIcon={<Search size={18} color="#94A3B8" />}
+          rightIcon={
+            search ? (
+              <TouchableOpacity onPress={() => setSearch('')}>
+                <X size={16} color="#94A3B8" />
+              </TouchableOpacity>
+            ) : undefined
+          }
+          containerStyle={{ marginVertical: 0 }}
         />
       </View>
 
-      {/* List */}
+      {/* Product List */}
       <FlatList
         data={filtered}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(p) => p.id}
         renderItem={renderItem}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={styles.listContent}
       />
 
-      {/* Commit Footer */}
-      <View style={styles.footer}>
-        <TouchableOpacity
-          style={[styles.commitBtn, isCommitting && { opacity: 0.7 }]}
+      {/* Floating Commit Bar */}
+      <View style={styles.commitBar}>
+        <GlowButton
+          title="Commit Stock Take"
+          icon={<Save size={18} color="#FFFFFF" />}
           onPress={handleCommitStockTake}
-          disabled={isCommitting}
-          activeOpacity={0.8}
-        >
-          {isCommitting ? (
-            <ActivityIndicator color="#FFFFFF" size="small" />
-          ) : (
-            <>
-              <Save size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-              <Text style={styles.commitBtnText}>Reconcile & Commit Counts</Text>
-            </>
-          )}
-        </TouchableOpacity>
+          isLoading={isCommitting}
+          variant="primary"
+          size="default"
+          style={{ flex: 1 }}
+        />
       </View>
     </View>
   );
@@ -243,118 +224,93 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F9F8F6',
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  searchSection: {
     paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 12,
+    paddingTop: 12,
+    paddingBottom: 8,
   },
-  backBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    alignItems: 'center',
-    justifyContent: 'center',
+  listContent: {
+    padding: 16,
+    paddingBottom: 90,
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    color: '#64748B',
-  },
-  searchWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  stockItemCard: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E2E8F0',
     borderRadius: 12,
-    marginHorizontal: 16,
-    marginBottom: 12,
-    paddingHorizontal: 12,
-    height: 44,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 14,
-    color: '#0F172A',
-  },
-  list: {
-    padding: 16,
-    paddingBottom: 100,
-  },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
     padding: 14,
     marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
   },
-  cardTop: {
+  itemHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 10,
   },
   itemName: {
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '600',
     color: '#0F172A',
   },
-  itemMeta: {
-    fontSize: 12,
+  itemSku: {
+    fontSize: 11,
     color: '#94A3B8',
     marginTop: 2,
   },
-  diffBadge: {
+  varianceBadge: {
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
   },
-  diffBadgeGreen: { backgroundColor: '#ECFDF5' },
-  diffBadgeRed: { backgroundColor: '#FEF2F2' },
-  diffText: {
+  variancePositive: {
+    backgroundColor: '#ECFDF5',
+  },
+  varianceNegative: {
+    backgroundColor: '#FEF2F2',
+  },
+  varianceText: {
     fontSize: 12,
     fontWeight: '700',
   },
-  diffTextGreen: { color: '#10B981' },
-  diffTextRed: { color: '#EF4444' },
-  matchBadge: {
-    padding: 4,
+  varianceTextPositive: {
+    color: '#10B981',
   },
-  cardBottom: {
+  varianceTextNegative: {
+    color: '#EF4444',
+  },
+  varianceBadgeNeutral: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  varianceTextNeutral: {
+    fontSize: 11,
+    color: '#64748B',
+    fontWeight: '500',
+  },
+  countRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
-    paddingTop: 10,
   },
-  metricLabel: {
-    fontSize: 11,
+  countLabel: {
+    fontSize: 13,
     color: '#64748B',
-  },
-  metricValue: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#0F172A',
+    fontWeight: '500',
   },
   stepperContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
   },
   stepBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 8,
+    width: 32,
+    height: 32,
+    borderRadius: 6,
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
@@ -364,18 +320,18 @@ const styles = StyleSheet.create({
   },
   countInput: {
     width: 50,
-    height: 34,
-    textAlign: 'center',
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#0F172A',
-    marginHorizontal: 6,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 6,
+    height: 32,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    borderRadius: 6,
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
+    backgroundColor: '#FFFFFF',
+    padding: 0,
   },
-  footer: {
+  commitBar: {
     position: 'absolute',
     bottom: 0,
     left: 0,
@@ -384,20 +340,5 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
     padding: 16,
-    elevation: 8,
-  },
-  commitBtn: {
-    backgroundColor: '#F47125',
-    borderRadius: 14,
-    height: 50,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  commitBtnText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
   },
 });
-

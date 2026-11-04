@@ -2,11 +2,9 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  ActivityIndicator,
   Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
@@ -14,16 +12,18 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { PosStackParamList } from '@/navigation/types';
 import { useMobilePos, type PaymentMethod } from '@/context/MobilePosContext';
 import { useAuth } from '@/context/AuthContext';
+import { useI18n } from '@/context/i18n-context';
+import { GlowInput } from '@/components/ui/GlowInput';
+import { GlowButton } from '@/components/ui/GlowButton';
 import {
   Banknote,
   CreditCard,
   Building2,
   BookOpen,
   Percent,
-  CheckCircle2,
-  ArrowLeft,
   Coins,
-  ShieldCheck,
+  CheckCircle2,
+  FileText,
 } from 'lucide-react-native';
 
 export function PaymentScreen() {
@@ -43,18 +43,16 @@ export function PaymentScreen() {
     setDiscountValue,
     discountType,
     setDiscountType,
-    taxRate,
-    setTaxRate,
     selectedCustomer,
     completeSale,
   } = useMobilePos();
   const { business } = useAuth();
+  const { t } = useI18n();
 
   const [notes, setNotes] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
   const currency = business?.settings?.currency || 'NGN';
-
   const quickBills = [1000, 2000, 5000, 10000, 20000];
 
   const handleCompletePayment = async () => {
@@ -87,11 +85,11 @@ export function PaymentScreen() {
     }
   };
 
-  const methods: { id: PaymentMethod; label: string; icon: any }[] = [
-    { id: 'cash', label: 'Cash', icon: Banknote },
-    { id: 'card', label: 'Card / POS', icon: CreditCard },
-    { id: 'bank_transfer', label: 'Transfer', icon: Building2 },
-    { id: 'store_credit', label: 'Debt / Credit', icon: BookOpen },
+  const methods: { id: PaymentMethod; label: string; desc: string; icon: any }[] = [
+    { id: 'cash', label: 'Cash', desc: 'Physical bills & coins', icon: Banknote },
+    { id: 'card', label: 'Card / POS', desc: 'Debit / credit terminal', icon: CreditCard },
+    { id: 'bank_transfer', label: 'Bank Transfer', desc: 'Direct wire / instant pay', icon: Building2 },
+    { id: 'store_credit', label: 'Debt / Ledger', desc: 'Account credit balance', icon: BookOpen },
   ];
 
   return (
@@ -108,12 +106,12 @@ export function PaymentScreen() {
               <Text style={styles.customerTagText}>Customer: {selectedCustomer.name}</Text>
             </View>
           ) : (
-            <Text style={styles.walkInText}>Walk-in Customer</Text>
+            <Text style={styles.walkInText}>Walk-in Guest Sale</Text>
           )}
         </View>
 
-        {/* Payment Method Selector */}
-        <Text style={styles.sectionTitle}>Select Payment Method</Text>
+        {/* Payment Method 2x2 Grid */}
+        <Text style={styles.sectionTitle}>Payment Method</Text>
         <View style={styles.methodsGrid}>
           {methods.map((m) => {
             const Icon = m.icon;
@@ -134,6 +132,7 @@ export function PaymentScreen() {
                 <Text style={[styles.methodLabel, isSelected && styles.methodLabelSelected]}>
                   {m.label}
                 </Text>
+                <Text style={styles.methodDesc}>{m.desc}</Text>
               </TouchableOpacity>
             );
           })}
@@ -143,22 +142,25 @@ export function PaymentScreen() {
         {paymentMethod === 'cash' ? (
           <View style={styles.cashTenderSection}>
             <Text style={styles.sectionTitle}>Cash Tendered</Text>
-            <View style={styles.tenderInputWrapper}>
-              <Text style={styles.currencyPrefix}>{currency}</Text>
-              <TextInput
-                style={styles.tenderInput}
-                keyboardType="numeric"
-                placeholder={cartTotal.toString()}
-                placeholderTextColor="#94A3B8"
-                value={amountTendered > 0 ? amountTendered.toString() : ''}
-                onChangeText={(val) => setAmountTendered(parseFloat(val) || 0)}
-              />
-              <TouchableOpacity
-                style={styles.exactButton}
-                onPress={() => setAmountTendered(cartTotal)}
-              >
-                <Text style={styles.exactButtonText}>Exact</Text>
-              </TouchableOpacity>
+            <View style={styles.tenderInputContainer}>
+              <View style={{ flex: 1 }}>
+                <GlowInput
+                  placeholder={cartTotal.toString()}
+                  keyboardType="numeric"
+                  value={amountTendered > 0 ? amountTendered.toString() : ''}
+                  onChangeText={(val) => setAmountTendered(parseFloat(val) || 0)}
+                  leftIcon={<Text style={styles.currencyPrefix}>{currency}</Text>}
+                  rightIcon={
+                    <TouchableOpacity
+                      style={styles.exactButton}
+                      onPress={() => setAmountTendered(cartTotal)}
+                    >
+                      <Text style={styles.exactButtonText}>Exact</Text>
+                    </TouchableOpacity>
+                  }
+                  containerStyle={{ marginVertical: 0 }}
+                />
+              </View>
             </View>
 
             {/* Quick Bill Chips */}
@@ -168,6 +170,7 @@ export function PaymentScreen() {
                   key={bill}
                   style={styles.billChip}
                   onPress={() => setAmountTendered(bill)}
+                  activeOpacity={0.7}
                 >
                   <Text style={styles.billChipText}>+{bill.toLocaleString()}</Text>
                 </TouchableOpacity>
@@ -191,49 +194,61 @@ export function PaymentScreen() {
         <View style={styles.adjustmentSection}>
           <Text style={styles.sectionTitle}>Discount & Adjustments</Text>
           <View style={styles.adjustmentRow}>
-            <View style={styles.discountInputWrapper}>
-              <Percent size={18} color="#94A3B8" style={{ marginRight: 6 }} />
-              <TextInput
-                style={styles.discountInput}
+            <View style={{ flex: 1 }}>
+              <GlowInput
+                placeholder="Discount value"
                 keyboardType="numeric"
-                placeholder="Discount"
-                placeholderTextColor="#94A3B8"
                 value={discountValue > 0 ? discountValue.toString() : ''}
                 onChangeText={(v) => setDiscountValue(parseFloat(v) || 0)}
+                leftIcon={<Percent size={18} color="#94A3B8" />}
+                containerStyle={{ marginVertical: 0 }}
               />
             </View>
 
-            <TouchableOpacity
-              style={[
-                styles.typeToggle,
-                discountType === 'percentage' && styles.typeToggleActive,
-              ]}
-              onPress={() => setDiscountType('percentage')}
-            >
-              <Text
+            <View style={styles.toggleGroup}>
+              <TouchableOpacity
                 style={[
-                  styles.typeToggleText,
-                  discountType === 'percentage' && styles.typeToggleTextActive,
+                  styles.typeToggle,
+                  discountType === 'percentage' && styles.typeToggleActive,
                 ]}
+                onPress={() => setDiscountType('percentage')}
               >
-                %
-              </Text>
-            </TouchableOpacity>
+                <Text
+                  style={[
+                    styles.typeToggleText,
+                    discountType === 'percentage' && styles.typeToggleTextActive,
+                  ]}
+                >
+                  %
+                </Text>
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.typeToggle, discountType === 'fixed' && styles.typeToggleActive]}
-              onPress={() => setDiscountType('fixed')}
-            >
-              <Text
-                style={[
-                  styles.typeToggleText,
-                  discountType === 'fixed' && styles.typeToggleTextActive,
-                ]}
+              <TouchableOpacity
+                style={[styles.typeToggle, discountType === 'fixed' && styles.typeToggleActive]}
+                onPress={() => setDiscountType('fixed')}
               >
-                {currency}
-              </Text>
-            </TouchableOpacity>
+                <Text
+                  style={[
+                    styles.typeToggleText,
+                    discountType === 'fixed' && styles.typeToggleTextActive,
+                  ]}
+                >
+                  {currency}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
+        </View>
+
+        {/* Transaction Notes with GlowInput */}
+        <View style={styles.notesSection}>
+          <GlowInput
+            label="Transaction Note (Optional)"
+            placeholder="Add receipt memo or order notes..."
+            value={notes}
+            onChangeText={setNotes}
+            leftIcon={<FileText size={18} color="#94A3B8" />}
+          />
         </View>
 
         {/* Breakdown Summary */}
@@ -254,50 +269,32 @@ export function PaymentScreen() {
           ) : null}
           {cartTax > 0 ? (
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Tax ({taxRate}%)</Text>
+              <Text style={styles.summaryLabel}>Tax</Text>
               <Text style={styles.summaryValue}>
                 +{currency} {cartTax.toLocaleString()}
               </Text>
             </View>
           ) : null}
-          <View style={[styles.summaryRow, styles.summaryDivider]}>
-            <Text style={styles.grandTotalLabel}>Final Amount</Text>
-            <Text style={styles.grandTotalValue}>
+          <View style={styles.summaryDivider} />
+          <View style={styles.summaryRow}>
+            <Text style={styles.totalSummaryLabel}>Final Amount</Text>
+            <Text style={styles.totalSummaryValue}>
               {currency} {cartTotal.toLocaleString()}
             </Text>
           </View>
         </View>
 
-        {/* Notes Field */}
-        <TextInput
-          style={styles.notesInput}
-          placeholder="Transaction notes (optional)..."
-          placeholderTextColor="#94A3B8"
-          value={notes}
-          onChangeText={setNotes}
+        {/* Complete Payment Button with button-glow */}
+        <GlowButton
+          title={`Complete Payment • ${currency} ${cartTotal.toLocaleString()}`}
+          icon={<CheckCircle2 size={18} color="#FFFFFF" />}
+          onPress={handleCompletePayment}
+          isLoading={isProcessing}
+          variant="primary"
+          size="lg"
+          style={{ marginTop: 20 }}
         />
       </ScrollView>
-
-      {/* Complete Button Footer */}
-      <View style={styles.footer}>
-        <TouchableOpacity
-          style={[styles.completeButton, isProcessing && { opacity: 0.7 }]}
-          onPress={handleCompletePayment}
-          disabled={isProcessing}
-          activeOpacity={0.8}
-        >
-          {isProcessing ? (
-            <ActivityIndicator color="#FFFFFF" size="small" />
-          ) : (
-            <>
-              <CheckCircle2 size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
-              <Text style={styles.completeButtonText}>
-                Complete Sale ({currency} {cartTotal.toLocaleString()})
-              </Text>
-            </>
-          )}
-        </TouchableOpacity>
-      </View>
     </View>
   );
 }
@@ -309,280 +306,222 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 110,
+    paddingBottom: 40,
   },
   totalHeaderCard: {
-    backgroundColor: '#0F172A',
-    borderRadius: 20,
-    padding: 24,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 16,
+    padding: 20,
     alignItems: 'center',
     marginBottom: 20,
   },
   totalLabel: {
     fontSize: 12,
-    fontWeight: '700',
-    color: '#94A3B8',
+    fontWeight: '600',
+    color: '#64748B',
     letterSpacing: 1,
   },
   totalAmountText: {
-    fontSize: 34,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    marginVertical: 8,
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginVertical: 6,
   },
   customerTag: {
-    backgroundColor: 'rgba(244, 113, 37, 0.2)',
-    paddingHorizontal: 12,
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    borderRadius: 6,
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 12,
   },
   customerTagText: {
-    color: '#F47125',
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '600',
+    color: '#F47125',
   },
   walkInText: {
-    color: '#64748B',
-    fontSize: 13,
+    fontSize: 12,
+    color: '#94A3B8',
   },
   sectionTitle: {
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '600',
     color: '#0F172A',
     marginBottom: 10,
   },
   methodsGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 10,
     marginBottom: 20,
   },
   methodCard: {
-    flex: 1,
+    width: '48%',
     backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 14,
-    paddingVertical: 14,
+    borderRadius: 12,
+    padding: 14,
     alignItems: 'center',
-    justifyContent: 'center',
   },
   methodCardSelected: {
     borderColor: '#F47125',
     backgroundColor: '#FFF7ED',
   },
   methodLabel: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#64748B',
-    marginTop: 6,
+    color: '#0F172A',
+    marginTop: 8,
   },
   methodLabelSelected: {
     color: '#F47125',
-    fontWeight: '700',
+  },
+  methodDesc: {
+    fontSize: 10,
+    color: '#94A3B8',
+    textAlign: 'center',
+    marginTop: 2,
   },
   cashTenderSection: {
     marginBottom: 20,
   },
-  tenderInputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    paddingHorizontal: 14,
-    height: 52,
+  tenderInputContainer: {
+    marginBottom: 10,
   },
   currencyPrefix: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '600',
     color: '#64748B',
-    marginRight: 8,
-  },
-  tenderInput: {
-    flex: 1,
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#0F172A',
   },
   exactButton: {
     backgroundColor: '#F1F5F9',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   exactButtonText: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '600',
     color: '#0F172A',
   },
   quickBillsRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 10,
+    gap: 6,
+    marginBottom: 12,
   },
   billChip: {
+    flex: 1,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 8,
-    paddingHorizontal: 12,
+    borderRadius: 6,
     paddingVertical: 6,
+    alignItems: 'center',
   },
   billChipText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
-    color: '#334155',
+    color: '#0F172A',
   },
   changeDueCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 14,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    padding: 16,
-    marginTop: 12,
+    borderRadius: 12,
+    padding: 14,
   },
   changeDueActive: {
-    backgroundColor: '#F0FDF4',
-    borderColor: '#BBF7D0',
+    borderColor: '#A7F3D0',
+    backgroundColor: '#ECFDF5',
   },
   changeDueLabel: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 10,
+    fontWeight: '600',
     color: '#64748B',
     letterSpacing: 0.5,
   },
   changeDueAmount: {
-    fontSize: 22,
-    fontWeight: '800',
+    fontSize: 20,
+    fontWeight: '700',
     color: '#10B981',
     marginTop: 2,
   },
   adjustmentSection: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   adjustmentRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
-  discountInputWrapper: {
-    flex: 1,
+  toggleGroup: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    paddingHorizontal: 12,
-    height: 44,
-  },
-  discountInput: {
-    flex: 1,
-    fontSize: 14,
-    color: '#0F172A',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 8,
+    padding: 2,
   },
   typeToggle: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
   },
   typeToggleActive: {
-    backgroundColor: '#0F172A',
-    borderColor: '#0F172A',
+    backgroundColor: '#FFFFFF',
   },
   typeToggleText: {
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 12,
     color: '#64748B',
+    fontWeight: '500',
   },
   typeToggleTextActive: {
-    color: '#FFFFFF',
+    color: '#0F172A',
+    fontWeight: '700',
+  },
+  notesSection: {
+    marginBottom: 16,
   },
   summaryCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    marginBottom: 16,
+    borderRadius: 12,
+    padding: 16,
+    gap: 8,
   },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 6,
+    alignItems: 'center',
   },
   summaryLabel: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#64748B',
   },
   summaryValue: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: '#0F172A',
   },
   summaryDivider: {
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
-    marginTop: 8,
-    paddingTop: 10,
+    height: 1,
+    backgroundColor: '#E2E8F0',
+    marginVertical: 4,
   },
-  grandTotalLabel: {
-    fontSize: 16,
-    fontWeight: '800',
+  totalSummaryLabel: {
+    fontSize: 15,
+    fontWeight: '700',
     color: '#0F172A',
   },
-  grandTotalValue: {
+  totalSummaryValue: {
     fontSize: 18,
-    fontWeight: '900',
-    color: '#F47125',
-  },
-  notesInput: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    padding: 12,
-    height: 48,
-    fontSize: 13,
-    color: '#0F172A',
-  },
-  footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
-    padding: 16,
-    elevation: 8,
-  },
-  completeButton: {
-    backgroundColor: '#F47125',
-    borderRadius: 14,
-    height: 52,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#F47125',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  completeButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
     fontWeight: '800',
+    color: '#0F172A',
   },
 });
-

@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useMobilePos } from '@/context/MobilePosContext';
 import { useAuth } from '@/context/AuthContext';
+import { GlowButton } from '@/components/ui/GlowButton';
 import {
   runForensicScan,
   type ForensicReport,
@@ -100,20 +101,14 @@ export function AuditForensicsScreen() {
               Scans all recent transaction voids, abnormal discounts, and cashier peer variance.
             </Text>
           </View>
-          <TouchableOpacity
-            style={[styles.scanBtn, isScanning && { opacity: 0.7 }]}
+          <GlowButton
+            title="Run Scan"
+            icon={<Play size={16} color="#FFFFFF" />}
             onPress={handleRunScan}
-            disabled={isScanning}
-          >
-            {isScanning ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <>
-                <Play size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-                <Text style={styles.scanBtnText}>Run Scan</Text>
-              </>
-            )}
-          </TouchableOpacity>
+            isLoading={isScanning}
+            variant="primary"
+            size="default"
+          />
         </View>
 
         {/* Report Overview if scan was run */}

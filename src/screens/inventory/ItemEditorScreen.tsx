@@ -1,12 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
-  TouchableOpacity,
   ScrollView,
   StyleSheet,
-  ActivityIndicator,
   Alert,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
@@ -15,6 +12,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { InventoryStackParamList } from '@/navigation/types';
 import { useMobilePos } from '@/context/MobilePosContext';
 import { useAuth } from '@/context/AuthContext';
+import { GlowInput } from '@/components/ui/GlowInput';
+import { GlowButton } from '@/components/ui/GlowButton';
 import {
   Save,
   Trash2,
@@ -23,9 +22,6 @@ import {
   Layers,
   DollarSign,
   Hash,
-  AlertCircle,
-  ArrowLeft,
-  Camera,
 } from 'lucide-react-native';
 
 export function ItemEditorScreen() {
@@ -56,8 +52,6 @@ export function ItemEditorScreen() {
   const [unit, setUnit] = useState(existingProduct?.unit || 'pcs');
 
   const [isSaving, setIsSaving] = useState(false);
-
-  const defaultCategories = ['General', 'Groceries', 'Beverages', 'Electronics', 'Apparel', 'Health'];
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -101,15 +95,19 @@ export function ItemEditorScreen() {
     if (!existingProduct) return;
     Alert.alert(
       'Delete Product',
-      `Permanently remove "${existingProduct.name}" from inventory?`,
+      `Are you sure you want to delete "${existingProduct.name}"? This action cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            await deleteProduct(existingProduct.id);
-            navigation.goBack();
+            try {
+              await deleteProduct(existingProduct.id);
+              navigation.goBack();
+            } catch (err: any) {
+              Alert.alert('Delete Failed', err?.message || 'Could not delete item.');
+            }
           },
         },
       ]
@@ -119,189 +117,122 @@ export function ItemEditorScreen() {
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        {/* Top Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>
-            {existingProduct ? 'Edit Catalog Item' : 'New Catalog Item'}
-          </Text>
-          <Text style={styles.subtitle}>
-            Changes mirror directly to local SQLite and sync to Firestore.
-          </Text>
-        </View>
-
-        {/* Card */}
+        {/* Basic Info Card */}
         <View style={styles.card}>
-          {/* Product Name */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Item Name *</Text>
-            <View style={styles.inputWrapper}>
-              <Package size={18} color="#94A3B8" style={{ marginRight: 8 }} />
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. Coca-Cola 500ml"
-                placeholderTextColor="#94A3B8"
-                value={name}
-                onChangeText={setName}
-              />
-            </View>
-          </View>
+          <Text style={styles.cardTitle}>Basic Information</Text>
 
-          {/* Pricing Row */}
-          <View style={styles.row}>
-            <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-              <Text style={styles.label}>Selling Price ({currency}) *</Text>
-              <TextInput
-                style={styles.inputWrapperDirect}
-                placeholder="0.00"
-                placeholderTextColor="#94A3B8"
-                keyboardType="numeric"
-                value={price}
-                onChangeText={setPrice}
-              />
-            </View>
+          <GlowInput
+            label="Product Name *"
+            placeholder="e.g. Fresh Milk 1L"
+            value={name}
+            onChangeText={setName}
+            leftIcon={<Package size={18} color="#94A3B8" />}
+          />
 
-            <View style={[styles.inputGroup, { flex: 1 }]}>
-              <Text style={styles.label}>Cost Price ({currency})</Text>
-              <TextInput
-                style={styles.inputWrapperDirect}
-                placeholder="0.00"
-                placeholderTextColor="#94A3B8"
-                keyboardType="numeric"
-                value={costPrice}
-                onChangeText={setCostPrice}
-              />
-            </View>
-          </View>
+          <GlowInput
+            label="Category"
+            placeholder="e.g. Dairy, Groceries, Apparel"
+            value={category}
+            onChangeText={setCategory}
+            leftIcon={<Layers size={18} color="#94A3B8" />}
+          />
 
-          {/* Stock & Low Stock Threshold */}
-          <View style={styles.row}>
-            <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-              <Text style={styles.label}>Stock Quantity *</Text>
-              <TextInput
-                style={styles.inputWrapperDirect}
-                placeholder="0"
-                placeholderTextColor="#94A3B8"
-                keyboardType="numeric"
-                value={stock}
-                onChangeText={setStock}
-              />
-            </View>
-
-            <View style={[styles.inputGroup, { flex: 1 }]}>
-              <Text style={styles.label}>Low Stock Alert</Text>
-              <TextInput
-                style={styles.inputWrapperDirect}
-                placeholder="5"
-                placeholderTextColor="#94A3B8"
-                keyboardType="numeric"
-                value={lowStockThreshold}
-                onChangeText={setLowStockThreshold}
-              />
-            </View>
-          </View>
-
-          {/* Category */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Category</Text>
-            <View style={styles.inputWrapper}>
-              <Layers size={18} color="#94A3B8" style={{ marginRight: 8 }} />
-              <TextInput
-                style={styles.input}
-                placeholder="General"
-                placeholderTextColor="#94A3B8"
-                value={category}
-                onChangeText={setCategory}
-              />
-            </View>
-            {/* Quick Category Chips */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsRow}>
-              {defaultCategories.map((cat) => (
-                <TouchableOpacity
-                  key={cat}
-                  style={[styles.chip, category === cat && styles.chipActive]}
-                  onPress={() => setCategory(cat)}
-                >
-                  <Text style={[styles.chipText, category === cat && styles.chipTextActive]}>
-                    {cat}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-
-          {/* Barcode & SKU */}
-          <View style={styles.row}>
-            <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-              <Text style={styles.label}>SKU / Code</Text>
-              <View style={styles.inputWrapper}>
-                <Hash size={16} color="#94A3B8" style={{ marginRight: 6 }} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="SKU-1001"
-                  placeholderTextColor="#94A3B8"
-                  value={sku}
-                  onChangeText={setSku}
-                />
-              </View>
-            </View>
-
-            <View style={[styles.inputGroup, { flex: 1 }]}>
-              <Text style={styles.label}>Barcode</Text>
-              <View style={styles.inputWrapper}>
-                <Barcode size={16} color="#94A3B8" style={{ marginRight: 6 }} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Barcode digits"
-                  placeholderTextColor="#94A3B8"
-                  value={barcode}
-                  onChangeText={setBarcode}
-                />
-              </View>
-            </View>
-          </View>
-
-          {/* Unit */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Unit of Measurement</Text>
-            <TextInput
-              style={styles.inputWrapperDirect}
-              placeholder="e.g. pcs, kg, pack, box"
-              placeholderTextColor="#94A3B8"
-              value={unit}
-              onChangeText={setUnit}
-            />
-          </View>
+          <GlowInput
+            label="Unit of Measurement"
+            placeholder="e.g. pcs, kg, packs"
+            value={unit}
+            onChangeText={setUnit}
+          />
         </View>
 
-        {/* Delete Action if editing */}
+        {/* Pricing Card */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Pricing & Profitability</Text>
+
+          <GlowInput
+            label={`Selling Price (${currency}) *`}
+            placeholder="0.00"
+            keyboardType="numeric"
+            value={price}
+            onChangeText={setPrice}
+            leftIcon={<DollarSign size={18} color="#94A3B8" />}
+          />
+
+          <GlowInput
+            label={`Cost Price (${currency})`}
+            placeholder="0.00"
+            keyboardType="numeric"
+            value={costPrice}
+            onChangeText={setCostPrice}
+            leftIcon={<DollarSign size={18} color="#94A3B8" />}
+          />
+        </View>
+
+        {/* Inventory Stock Card */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Inventory & Stock</Text>
+
+          <GlowInput
+            label="Current Available Stock"
+            placeholder="0"
+            keyboardType="numeric"
+            value={stock}
+            onChangeText={setStock}
+            leftIcon={<Hash size={18} color="#94A3B8" />}
+          />
+
+          <GlowInput
+            label="Low Stock Alert Threshold"
+            placeholder="5"
+            keyboardType="numeric"
+            value={lowStockThreshold}
+            onChangeText={setLowStockThreshold}
+          />
+        </View>
+
+        {/* Identification Card */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Barcodes & SKU</Text>
+
+          <GlowInput
+            label="Barcode (1D / 2D EAN/UPC)"
+            placeholder="Scan or enter barcode number"
+            value={barcode}
+            onChangeText={setBarcode}
+            leftIcon={<Barcode size={18} color="#94A3B8" />}
+          />
+
+          <GlowInput
+            label="SKU (Stock Keeping Unit)"
+            placeholder="e.g. MLK-1001-L"
+            value={sku}
+            onChangeText={setSku}
+          />
+        </View>
+
+        {/* Action Buttons */}
+        <GlowButton
+          title={existingProduct ? 'Update Product' : 'Add to Inventory'}
+          icon={<Save size={18} color="#FFFFFF" />}
+          onPress={handleSave}
+          isLoading={isSaving}
+          variant="primary"
+          size="lg"
+          style={{ marginTop: 12 }}
+        />
+
         {existingProduct ? (
-          <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
-            <Trash2 size={18} color="#EF4444" style={{ marginRight: 6 }} />
-            <Text style={styles.deleteButtonText}>Delete Product From Catalog</Text>
-          </TouchableOpacity>
+          <GlowButton
+            title="Delete Product"
+            icon={<Trash2 size={18} color="#EF4444" />}
+            onPress={handleDelete}
+            variant="outline"
+            size="default"
+            textStyle={{ color: '#EF4444' }}
+            style={{ marginTop: 10, borderColor: '#FCA5A5' }}
+          />
         ) : null}
       </ScrollView>
-
-      {/* Save Button Footer */}
-      <View style={styles.footer}>
-        <TouchableOpacity
-          style={[styles.saveButton, isSaving && { opacity: 0.7 }]}
-          onPress={handleSave}
-          disabled={isSaving}
-          activeOpacity={0.8}
-        >
-          {isSaving ? (
-            <ActivityIndicator color="#FFFFFF" size="small" />
-          ) : (
-            <>
-              <Save size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-              <Text style={styles.saveButtonText}>
-                {existingProduct ? 'Update Product' : 'Create Product'}
-              </Text>
-            </>
-          )}
-        </TouchableOpacity>
-      </View>
     </View>
   );
 }
@@ -313,136 +244,20 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
-    paddingBottom: 110,
-  },
-  header: {
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  subtitle: {
-    fontSize: 13,
-    color: '#64748B',
-    marginTop: 2,
+    paddingBottom: 40,
   },
   card: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 18,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  inputGroup: {
-    marginBottom: 14,
-  },
-  row: {
-    flexDirection: 'row',
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#334155',
-    marginBottom: 6,
-  },
-  inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 46,
-  },
-  inputWrapperDirect: {
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    height: 46,
-    fontSize: 14,
-    color: '#0F172A',
-  },
-  input: {
-    flex: 1,
-    fontSize: 14,
-    color: '#0F172A',
-  },
-  chipsRow: {
-    flexDirection: 'row',
-    marginTop: 8,
-  },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 16,
-    backgroundColor: '#F1F5F9',
-    marginRight: 6,
-  },
-  chipActive: {
-    backgroundColor: '#0F172A',
-  },
-  chipText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#64748B',
-  },
-  chipTextActive: {
-    color: '#FFFFFF',
-  },
-  deleteButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    marginTop: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#FCA5A5',
-    backgroundColor: '#FEF2F2',
-  },
-  deleteButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#DC2626',
-  },
-  footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
-    padding: 16,
-    elevation: 8,
-  },
-  saveButton: {
-    backgroundColor: '#F47125',
     borderRadius: 14,
-    height: 50,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#F47125',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 3,
+    padding: 16,
+    marginBottom: 16,
   },
-  saveButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
+  cardTitle: {
+    fontSize: 15,
     fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 10,
   },
 });
-

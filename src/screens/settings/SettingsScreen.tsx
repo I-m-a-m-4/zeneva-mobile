@@ -4,7 +4,6 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
-  TextInput,
   StyleSheet,
   Alert,
   Modal,
@@ -13,6 +12,8 @@ import { useAuth } from '@/context/AuthContext';
 import { useBranch } from '@/context/branch-context';
 import { useI18n } from '@/context/i18n-context';
 import type { LocaleCode } from '@/lib/i18n/config';
+import { GlowInput } from '@/components/ui/GlowInput';
+import { GlowButton } from '@/components/ui/GlowButton';
 import {
   Store,
   Globe,
@@ -118,11 +119,12 @@ export function SettingsScreen() {
                     key={b.id}
                     style={[styles.rowItem, isActive && styles.rowItemActive]}
                     onPress={() => setActiveBranchId(b.id)}
+                    activeOpacity={0.7}
                   >
                     <View style={styles.rowLeft}>
                       <Building size={18} color={isActive ? '#F47125' : '#64748B'} />
-                      <Text style={[styles.rowText, isActive && styles.rowTextActive]}>
-                        {b.name} {b.isPrimary ? '(Primary)' : ''}
+                      <Text style={[styles.rowLabel, isActive && styles.rowLabelActive]}>
+                        {b.name}
                       </Text>
                     </View>
                     {isActive ? <Check size={18} color="#F47125" /> : null}
@@ -133,82 +135,91 @@ export function SettingsScreen() {
           </View>
         ) : null}
 
-        {/* Regional & Language */}
+        {/* General Settings */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Internationalization (11 Locales)</Text>
-          <TouchableOpacity
-            style={styles.cardButton}
-            onPress={() => setShowLanguageModal(true)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.rowLeft}>
-              <Globe size={20} color="#64748B" />
-              <View style={{ marginLeft: 12 }}>
-                <Text style={styles.cardButtonTitle}>App Language</Text>
-                <Text style={styles.cardButtonSubtitle}>
-                  {currentLang.nativeName} ({currentLang.name})
-                </Text>
-              </View>
-            </View>
-            <ChevronRight size={18} color="#94A3B8" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Security & PIN Lock */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Terminal Security</Text>
-          <TouchableOpacity
-            style={styles.cardButton}
-            onPress={() => setShowPinModal(true)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.rowLeft}>
-              <Lock size={20} color="#64748B" />
-              <View style={{ marginLeft: 12 }}>
-                <Text style={styles.cardButtonTitle}>
-                  {hasPin ? 'Change Security PIN' : 'Set 4-Digit Terminal PIN'}
-                </Text>
-                <Text style={styles.cardButtonSubtitle}>
-                  {hasPin ? 'PIN is active on this register' : 'Protect terminal when stepping away'}
-                </Text>
-              </View>
-            </View>
-            <ChevronRight size={18} color="#94A3B8" />
-          </TouchableOpacity>
-
-          {hasPin ? (
+          <Text style={styles.sectionTitle}>Preferences</Text>
+          <View style={styles.card}>
+            {/* Language Selector */}
             <TouchableOpacity
-              style={[styles.cardButton, { marginTop: 10 }]}
-              onPress={() => lockApp()}
+              style={styles.rowItem}
+              onPress={() => setShowLanguageModal(true)}
               activeOpacity={0.7}
             >
               <View style={styles.rowLeft}>
-                <Shield size={20} color="#F47125" />
-                <View style={{ marginLeft: 12 }}>
-                  <Text style={[styles.cardButtonTitle, { color: '#F47125' }]}>
-                    Lock Terminal Now
-                  </Text>
-                  <Text style={styles.cardButtonSubtitle}>Requires PIN to resume POS actions</Text>
-                </View>
+                <Globe size={18} color="#64748B" />
+                <Text style={styles.rowLabel}>Application Language</Text>
               </View>
-              <ChevronRight size={18} color="#F47125" />
+              <View style={styles.rowRight}>
+                <Text style={styles.rowValue}>{currentLang.name}</Text>
+                <ChevronRight size={18} color="#94A3B8" />
+              </View>
             </TouchableOpacity>
-          ) : null}
+
+            {/* Currency Info */}
+            <View style={styles.rowItem}>
+              <View style={styles.rowLeft}>
+                <CreditCard size={18} color="#64748B" />
+                <Text style={styles.rowLabel}>Primary Currency</Text>
+              </View>
+              <Text style={styles.rowValue}>{business?.settings?.currency || 'NGN'}</Text>
+            </View>
+          </View>
         </View>
 
-        {/* Cashier Sign Out */}
-        <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
-          <LogOut size={18} color="#DC2626" style={{ marginRight: 8 }} />
-          <Text style={styles.signOutBtnText}>Log Out Terminal Session</Text>
-        </TouchableOpacity>
+        {/* Security & Lock Screen */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Security & Cashier Lock</Text>
+          <View style={styles.card}>
+            {/* Set / Change PIN */}
+            <TouchableOpacity
+              style={styles.rowItem}
+              onPress={() => setShowPinModal(true)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.rowLeft}>
+                <Shield size={18} color="#64748B" />
+                <Text style={styles.rowLabel}>
+                  {hasPin ? 'Change Terminal PIN' : 'Set Terminal PIN'}
+                </Text>
+              </View>
+              <ChevronRight size={18} color="#94A3B8" />
+            </TouchableOpacity>
+
+            {/* Lock Register Now */}
+            {hasPin ? (
+              <TouchableOpacity
+                style={styles.rowItem}
+                onPress={() => lockApp()}
+                activeOpacity={0.7}
+              >
+                <View style={styles.rowLeft}>
+                  <Lock size={18} color="#F47125" />
+                  <Text style={[styles.rowLabel, { color: '#F47125' }]}>Lock Register Now</Text>
+                </View>
+                <ChevronRight size={18} color="#F47125" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </View>
+
+        {/* Sign Out Button */}
+        <GlowButton
+          title="Sign Out Terminal"
+          icon={<LogOut size={18} color="#EF4444" />}
+          onPress={handleSignOut}
+          variant="outline"
+          size="default"
+          textStyle={{ color: '#EF4444' }}
+          style={{ marginTop: 24, borderColor: '#FCA5A5' }}
+        />
       </ScrollView>
 
-      {/* Language Picker Modal */}
+      {/* Language Selector Modal */}
       <Modal visible={showLanguageModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Language</Text>
+              <Text style={styles.modalTitle}>Choose Language</Text>
               <TouchableOpacity onPress={() => setShowLanguageModal(false)}>
                 <X size={22} color="#64748B" />
               </TouchableOpacity>
@@ -220,17 +231,18 @@ export function SettingsScreen() {
                 return (
                   <TouchableOpacity
                     key={l.code}
-                    style={[styles.langRow, isSelected && styles.langRowActive]}
+                    style={[styles.langItem, isSelected && styles.langItemActive]}
                     onPress={() => {
                       setLocale(l.code);
                       setShowLanguageModal(false);
                     }}
+                    activeOpacity={0.7}
                   >
                     <View>
-                      <Text style={[styles.langNative, isSelected && styles.langNativeActive]}>
-                        {l.nativeName}
+                      <Text style={[styles.langName, isSelected && styles.langNameActive]}>
+                        {l.name}
                       </Text>
-                      <Text style={styles.langName}>{l.name}</Text>
+                      <Text style={styles.langNative}>{l.nativeName}</Text>
                     </View>
                     {isSelected ? <Check size={18} color="#F47125" /> : null}
                   </TouchableOpacity>
@@ -241,53 +253,50 @@ export function SettingsScreen() {
         </View>
       </Modal>
 
-      {/* Set PIN Modal */}
+      {/* PIN Setup Modal with GlowInputs */}
       <Modal visible={showPinModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Set Terminal Security PIN</Text>
+              <Text style={styles.modalTitle}>Terminal Security PIN</Text>
               <TouchableOpacity onPress={() => setShowPinModal(false)}>
                 <X size={22} color="#64748B" />
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.modalSubtitle}>
-              Enter a 4-digit code to quickly lock and unlock the cashier screen.
+            <Text style={styles.modalDesc}>
+              Enter a 4-digit numeric code to protect the register when unattended:
             </Text>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>New 4-Digit PIN</Text>
-              <TextInput
-                style={styles.pinInput}
-                keyboardType="numeric"
-                maxLength={4}
-                secureTextEntry
-                placeholder="••••"
-                placeholderTextColor="#94A3B8"
-                value={newPin}
-                onChangeText={setNewPin}
-                autoFocus
-              />
-            </View>
+            <GlowInput
+              label="New 4-Digit PIN"
+              placeholder="••••"
+              keyboardType="numeric"
+              maxLength={4}
+              secureTextEntry
+              value={newPin}
+              onChangeText={setNewPin}
+              leftIcon={<Lock size={18} color="#94A3B8" />}
+            />
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Confirm 4-Digit PIN</Text>
-              <TextInput
-                style={styles.pinInput}
-                keyboardType="numeric"
-                maxLength={4}
-                secureTextEntry
-                placeholder="••••"
-                placeholderTextColor="#94A3B8"
-                value={confirmPin}
-                onChangeText={setConfirmPin}
-              />
-            </View>
+            <GlowInput
+              label="Confirm PIN"
+              placeholder="••••"
+              keyboardType="numeric"
+              maxLength={4}
+              secureTextEntry
+              value={confirmPin}
+              onChangeText={setConfirmPin}
+              leftIcon={<Lock size={18} color="#94A3B8" />}
+            />
 
-            <TouchableOpacity style={styles.savePinBtn} onPress={handleSetNewPin}>
-              <Text style={styles.savePinBtnText}>Save Security PIN</Text>
-            </TouchableOpacity>
+            <GlowButton
+              title="Save Terminal PIN"
+              onPress={handleSetNewPin}
+              variant="primary"
+              size="default"
+              style={{ marginTop: 14 }}
+            />
           </View>
         </View>
       </Modal>
@@ -308,29 +317,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 18,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    borderRadius: 16,
+    padding: 16,
     marginBottom: 20,
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
+    gap: 14,
   },
   storeIcon: {
-    width: 54,
-    height: 54,
-    borderRadius: 16,
+    width: 52,
+    height: 52,
+    borderRadius: 12,
     backgroundColor: '#FFF7ED',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 14,
   },
   storeName: {
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#0F172A',
   },
   storeOwner: {
@@ -339,61 +343,44 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   planBadge: {
-    backgroundColor: '#0F172A',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
     alignSelf: 'flex-start',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
     marginTop: 6,
   },
   planText: {
-    color: '#FFFFFF',
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '700',
+    color: '#64748B',
+    letterSpacing: 0.5,
   },
   section: {
     marginBottom: 20,
   },
   sectionTitle: {
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 13,
+    fontWeight: '600',
     color: '#64748B',
-    marginBottom: 8,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+    marginBottom: 8,
+    marginLeft: 4,
   },
   card: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    borderRadius: 12,
     overflow: 'hidden',
-  },
-  cardButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  cardButtonTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-  cardButtonSubtitle: {
-    fontSize: 12,
-    color: '#64748B',
-    marginTop: 2,
   },
   rowItem: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 14,
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
   },
@@ -403,119 +390,79 @@ const styles = StyleSheet.create({
   rowLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
   },
-  rowText: {
+  rowLabel: {
     fontSize: 14,
-    fontWeight: '600',
     color: '#0F172A',
-    marginLeft: 10,
+    fontWeight: '500',
   },
-  rowTextActive: {
+  rowLabelActive: {
     color: '#F47125',
-    fontWeight: '700',
+    fontWeight: '600',
   },
-  signOutBtn: {
+  rowRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FCA5A5',
-    borderRadius: 14,
-    paddingVertical: 14,
-    marginTop: 10,
+    gap: 6,
   },
-  signOutBtnText: {
-    color: '#DC2626',
-    fontSize: 15,
-    fontWeight: '700',
+  rowValue: {
+    fontSize: 14,
+    color: '#64748B',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    backgroundColor: 'rgba(15, 23, 42, 0.4)',
     justifyContent: 'center',
-    padding: 24,
+    alignItems: 'center',
+    padding: 20,
   },
   modalCard: {
+    width: '100%',
+    maxWidth: 400,
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    borderRadius: 16,
     padding: 20,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 14,
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '700',
     color: '#0F172A',
   },
-  modalSubtitle: {
+  modalDesc: {
     fontSize: 13,
     color: '#64748B',
-    marginBottom: 16,
+    lineHeight: 18,
+    marginBottom: 12,
   },
-  langRow: {
+  langItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-  },
-  langRowActive: {
-    backgroundColor: '#FFF7ED',
-    paddingHorizontal: 8,
+    paddingHorizontal: 14,
     borderRadius: 8,
+    marginBottom: 4,
   },
-  langNative: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-  langNativeActive: {
-    color: '#F47125',
+  langItemActive: {
+    backgroundColor: '#FFF7ED',
   },
   langName: {
-    fontSize: 12,
-    color: '#64748B',
-    marginTop: 2,
-  },
-  inputGroup: {
-    marginBottom: 14,
-  },
-  label: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '600',
-    color: '#334155',
-    marginBottom: 6,
-  },
-  pinInput: {
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    height: 48,
-    fontSize: 20,
-    fontWeight: '700',
-    letterSpacing: 8,
     color: '#0F172A',
-    textAlign: 'center',
   },
-  savePinBtn: {
-    backgroundColor: '#F47125',
-    borderRadius: 12,
-    height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
+  langNameActive: {
+    color: '#F47125',
   },
-  savePinBtnText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
+  langNative: {
+    fontSize: 12,
+    color: '#94A3B8',
   },
 });
-

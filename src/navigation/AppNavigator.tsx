@@ -120,7 +120,7 @@ function InventoryNavigator() {
       <InventoryStack.Screen
         name="InventoryCatalog"
         component={InventoryCatalogScreen}
-        options={{ title: 'Catalog & Inventory' }}
+        options={{ headerShown: false }}
       />
       <InventoryStack.Screen
         name="ItemEditor"
@@ -149,7 +149,7 @@ function CustomersNavigator() {
       <CustomersStack.Screen
         name="CustomersDirectory"
         component={CustomersDirectoryScreen}
-        options={{ title: 'Customer Directory' }}
+        options={{ headerShown: false }}
       />
       <CustomersStack.Screen
         name="CustomerLedger"

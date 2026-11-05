@@ -4,7 +4,6 @@ import { View, StyleSheet, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { enableScreens } from 'react-native-screens';
-import { registerRootComponent } from 'expo';
 import {
   useFonts,
   DMSans_400Regular,
@@ -79,5 +78,3 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 });
-
-registerRootComponent(App);

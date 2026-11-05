@@ -86,7 +86,7 @@ function PosNavigator() {
       <PosStack.Screen
         name="SelectProducts"
         component={SelectProductsScreen}
-        options={{ title: 'POS Register' }}
+        options={{ headerShown: false }}
       />
       <PosStack.Screen
         name="CustomerSelect"
@@ -263,17 +263,7 @@ function MainTabNavigator() {
           }}
         />
 
-        {/* 4. Customers Tab */}
-        <Tab.Screen
-          name="CustomersTab"
-          component={CustomersNavigator}
-          options={{
-            title: 'Customers',
-            tabBarIcon: ({ color, size }) => <Users size={size} color={color} />,
-          }}
-        />
-
-        {/* 5. More Tab - opens the bottom sheet with all other links matching web MobileBottomNav */}
+        {/* 4. More Tab - opens the bottom sheet with all other links matching web MobileBottomNav */}
         <Tab.Screen
           name="MoreTab"
           component={EmptyScreen}
@@ -311,6 +301,23 @@ function MainTabNavigator() {
             </View>
 
             <ScrollView style={{ maxHeight: 380 }}>
+              <TouchableOpacity
+                style={styles.sheetItem}
+                onPress={() => {
+                  setIsMoreSheetOpen(false);
+                  rootNavigation.navigate('CustomersScreen');
+                }}
+              >
+                <View style={[styles.sheetItemIcon, { backgroundColor: '#F0FDF4' }]}>
+                  <Users size={18} color="#16A34A" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sheetItemTitle}>Customers & Debt Ledger</Text>
+                  <Text style={styles.sheetItemSub}>Client accounts, credit balance & history</Text>
+                </View>
+                <ChevronRight size={16} color="#CBD5E1" />
+              </TouchableOpacity>
+
               <TouchableOpacity
                 style={styles.sheetItem}
                 onPress={() => {
@@ -405,6 +412,11 @@ export function AppNavigator() {
       ) : (
         <>
           <RootStack.Screen name="MainTabs" component={MainTabNavigator} />
+          <RootStack.Screen
+            name="CustomersScreen"
+            component={CustomersNavigator}
+            options={{ headerShown: false }}
+          />
           <RootStack.Screen
             name="AuditScreen"
             component={AuditForensicsScreen}

@@ -32,7 +32,6 @@ export type MainTabParamList = {
   DashboardTab: undefined;
   InventoryTab: NavigatorScreenParams<InventoryStackParamList>;
   PosTab: NavigatorScreenParams<PosStackParamList>;
-  CustomersTab: NavigatorScreenParams<CustomersStackParamList>;
   MoreTab: undefined;
 };
 
@@ -41,6 +40,7 @@ export type RootStackParamList = {
   Register: undefined;
   PinLock: undefined;
   MainTabs: NavigatorScreenParams<MainTabParamList>;
+  CustomersScreen: undefined;
   AuditScreen: undefined;
   AdminScreen: undefined;
   SettingsScreen: undefined;
